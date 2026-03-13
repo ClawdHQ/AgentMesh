@@ -10,9 +10,24 @@ export function sha256Buffer(data: Buffer): string {
 }
 
 // Creates a deterministic hash of a JSON-serializable object
+// Recursively sorts all keys for consistent serialization
 export function hashObject(obj: unknown): string {
-  const sorted = JSON.stringify(obj, Object.keys(obj as Record<string, unknown>).sort());
-  return sha256(sorted);
+  const sortedJson = deterministicStringify(obj);
+  return sha256(sortedJson);
+}
+
+function deterministicStringify(val: unknown): string {
+  if (val === null || typeof val !== 'object') {
+    return JSON.stringify(val);
+  }
+  if (Array.isArray(val)) {
+    return '[' + val.map(deterministicStringify).join(',') + ']';
+  }
+  const sorted = Object.keys(val as Record<string, unknown>)
+    .sort()
+    .map((k) => JSON.stringify(k) + ':' + deterministicStringify((val as Record<string, unknown>)[k]))
+    .join(',');
+  return '{' + sorted + '}';
 }
 
 // Timestamp utilities

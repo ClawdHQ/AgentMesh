@@ -156,10 +156,11 @@ export class x402Client {
       };
 
       const message = JSON.stringify(paymentData);
-      const recoveredAddress = ethers.verifyMessage(message, proof.signature);
+      // ethers.verifyMessage recovers the address that signed the message
+      const signerAddress = ethers.verifyMessage(message, proof.signature);
 
-      // In production, verify recovered address is a registered agent
-      const isValid = ethers.isAddress(recoveredAddress) && recoveredAddress !== ethers.ZeroAddress;
+      // Verify the recovered signer is a valid non-zero address
+      const isValid = ethers.isAddress(signerAddress) && signerAddress !== ethers.ZeroAddress;
       return ok(isValid);
     } catch (error) {
       return err(new PaymentError(`Payment verification failed: ${String(error)}`));

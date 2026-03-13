@@ -98,8 +98,15 @@ export class ComputeAgent extends BaseAgent {
   }
 
   private async analyzePricing(payload: Record<string, unknown>): Promise<Record<string, unknown>> {
-    const vendors = (payload.vendors as Array<{ name: string; price: number }>) ?? [];
-    const currentPrice = (payload.currentPrice as number) ?? 0;
+    const rawVendors = Array.isArray(payload.vendors) ? payload.vendors : [];
+    const vendors = rawVendors.filter(
+      (v): v is { name: string; price: number } =>
+        typeof v === 'object' &&
+        v !== null &&
+        typeof (v as Record<string, unknown>).name === 'string' &&
+        typeof (v as Record<string, unknown>).price === 'number'
+    );
+    const currentPrice = typeof payload.currentPrice === 'number' ? payload.currentPrice : 0;
 
     const analysis = vendors.map((v) => ({
       vendor: v.name,
@@ -158,8 +165,8 @@ export class ComputeAgent extends BaseAgent {
   }
 
   private async calculateSavings(payload: Record<string, unknown>): Promise<Record<string, unknown>> {
-    const currentPrice = payload.currentPrice as number ?? 0;
-    const newPrice = payload.newPrice as number ?? 0;
+    const currentPrice = typeof payload.currentPrice === 'number' ? payload.currentPrice : 0;
+    const newPrice = typeof payload.newPrice === 'number' ? payload.newPrice : 0;
     const monthlySavings = currentPrice - newPrice;
 
     return {

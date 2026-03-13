@@ -16,6 +16,7 @@ contract TaskEscrow is Ownable, ReentrancyGuard {
     struct Task {
         uint256 taskId;
         address requester;
+        address executor;           // address that accepted the task
         uint256 executorAgentId;
         uint256 amount;
         address token;          // address(0) for native ETH
@@ -68,6 +69,7 @@ contract TaskEscrow is Ownable, ReentrancyGuard {
         _tasks[taskId] = Task({
             taskId: taskId,
             requester: msg.sender,
+            executor: address(0),
             executorAgentId: executorAgentId,
             amount: amount,
             token: token,
@@ -109,6 +111,7 @@ contract TaskEscrow is Ownable, ReentrancyGuard {
         require(block.timestamp <= task.deadline, "TaskEscrow: deadline passed");
 
         task.status = TaskStatus.Accepted;
+        task.executor = msg.sender;
         emit TaskAccepted(taskId, task.executorAgentId);
     }
 
@@ -117,6 +120,7 @@ contract TaskEscrow is Ownable, ReentrancyGuard {
         Task storage task = _tasks[taskId];
         require(task.requester != address(0), "TaskEscrow: task not found");
         require(task.status == TaskStatus.Accepted, "TaskEscrow: task not accepted");
+        require(msg.sender == task.executor, "TaskEscrow: only executor can complete");
         require(bytes(resultCID).length > 0, "TaskEscrow: empty result CID");
 
         task.status = TaskStatus.Completed;
@@ -188,11 +192,12 @@ contract TaskEscrow is Ownable, ReentrancyGuard {
     }
 
     function _releasePayment(Task storage task) internal {
+        require(task.executor != address(0), "TaskEscrow: no executor set");
         if (task.token == address(0)) {
-            (bool success, ) = payable(tx.origin).call{value: task.amount}("");
+            (bool success, ) = payable(task.executor).call{value: task.amount}("");
             require(success, "TaskEscrow: ETH transfer failed");
         } else {
-            IERC20(task.token).safeTransfer(tx.origin, task.amount);
+            IERC20(task.token).safeTransfer(task.executor, task.amount);
         }
     }
 
