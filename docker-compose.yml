@@ -1,0 +1,93 @@
+version: '3.9'
+
+services:
+  orchestrator:
+    build:
+      context: .
+      dockerfile: apps/orchestrator/Dockerfile
+    env_file: .env
+    ports:
+      - "3002:3002"
+    networks:
+      - agentmesh-net
+    volumes:
+      - agent-memory:/app/memory
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3002/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    depends_on:
+      - api-server
+
+  specialist-agents:
+    build:
+      context: .
+      dockerfile: apps/specialist-agents/Dockerfile
+    env_file: .env
+    ports:
+      - "3003:3003"
+    networks:
+      - agentmesh-net
+    volumes:
+      - agent-memory:/app/memory
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3003/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    depends_on:
+      - api-server
+
+  vendor-agent:
+    build:
+      context: .
+      dockerfile: apps/vendor-agent/Dockerfile
+    env_file: .env
+    ports:
+      - "3004:3004"
+    networks:
+      - agentmesh-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3004/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    depends_on:
+      - api-server
+
+  api-server:
+    build:
+      context: .
+      dockerfile: apps/api-server/Dockerfile
+    env_file: .env
+    ports:
+      - "3001:3001"
+    networks:
+      - agentmesh-net
+    volumes:
+      - ipfs-cache:/app/cache
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  oversight-dashboard:
+    build:
+      context: .
+      dockerfile: apps/oversight-dashboard/Dockerfile
+    ports:
+      - "5173:80"
+    networks:
+      - agentmesh-net
+    depends_on:
+      - api-server
+
+networks:
+  agentmesh-net:
+    driver: bridge
+
+volumes:
+  ipfs-cache:
+  agent-memory:

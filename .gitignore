@@ -1,0 +1,15 @@
+node_modules/
+dist/
+.turbo/
+coverage/
+.env
+*.log
+.DS_Store
+artifacts/
+cache/
+typechain-types/
+deployments/
+.nyc_output/
+build/
+out/
+.next/
