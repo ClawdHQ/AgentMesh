@@ -5,7 +5,7 @@ export function agentsRouter(
     string,
     { agentId: string; agentName: string; status: string; intent?: string; timestamp: number }
   >
-) {
+): Router {
   const router = Router();
 
   // Seed some mock agents for demo

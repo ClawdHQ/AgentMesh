@@ -74,10 +74,11 @@ export class ComputeAgent extends BaseAgent {
       }
 
       // Create decision proof
+      const reasoningArr = [`Computed ${task.type}`, `Result: ${JSON.stringify(result).slice(0, 100)}`];
       const proofResult = await this.decisionProver.proveDecision(
         { taskId: task.taskId, inputs: inputHash, timestamp: Date.now() },
-        { taskId: task.taskId, outputs: { result }, timestamp: Date.now() },
-        [`Computed ${task.type}`, `Result: ${JSON.stringify(result).slice(0, 100)}`]
+        { taskId: task.taskId, outputs: { result }, reasoning: reasoningArr, timestamp: Date.now() },
+        reasoningArr
       );
 
       return {

@@ -71,10 +71,12 @@ export class IPFSStorage {
 
   // Store agent memory
   async storeMemory(agentId: string, memory: AgentMemory): Promise<Result<string, StorageError>> {
+    // Remove agentId from memory to avoid duplicate property
+    const { agentId: _removed, ...rest } = memory;
     return this.store({
       '@type': 'AgentMemory',
       agentId,
-      ...memory,
+      ...rest,
     });
   }
 

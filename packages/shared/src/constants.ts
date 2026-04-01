@@ -10,11 +10,11 @@ export const TOPIC_NEGOTIATION = 'agentmesh/negotiation';
 export const TOPIC_PAYMENTS = 'agentmesh/payments';
 
 // Chain IDs
-export const BASE_SEPOLIA_CHAIN_ID = 84532;
-export const BASE_MAINNET_CHAIN_ID = 8453;
+export const SEPOLIA_CHAIN_ID = 11155111;
+export const ETHEREUM_MAINNET_CHAIN_ID = 1;
 
-// USDC on Base Sepolia
-export const USDC_BASE_SEPOLIA = '0x036CbD53842c5426634e7929541eC2318f3dCF7e';
+// USDC on Ethereum Sepolia
+export const USDC_SEPOLIA = '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238';
 
 // ERC-8004 capabilities
 export const CAPABILITY_SUBSCRIPTION_PRICING = 'subscription_pricing';

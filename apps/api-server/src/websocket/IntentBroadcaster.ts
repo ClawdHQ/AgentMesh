@@ -15,11 +15,12 @@ export class IntentBroadcaster {
 
   start(): void {
     // Subscribe to libp2p topics and forward to WebSocket clients
+
     this.libp2p.subscribe(TOPIC_INTENTS, async (message: AgentMessage) => {
       this.broadcast(
         JSON.stringify({
-          type: 'intent',
           ...message,
+          type: 'intent',
         })
       );
     });
@@ -27,8 +28,8 @@ export class IntentBroadcaster {
     this.libp2p.subscribe(TOPIC_HALT, async (message: AgentMessage) => {
       this.broadcast(
         JSON.stringify({
-          type: 'halt',
           ...message,
+          type: 'halt',
         })
       );
     });
@@ -36,8 +37,8 @@ export class IntentBroadcaster {
     this.libp2p.subscribe(TOPIC_TASKS, async (message: AgentMessage) => {
       this.broadcast(
         JSON.stringify({
-          type: 'task_update',
           ...message,
+          type: 'task_update',
         })
       );
     });

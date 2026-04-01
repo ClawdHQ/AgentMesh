@@ -4,7 +4,7 @@ import { TOPIC_TASKS } from '@agentmesh/shared';
 
 const taskStore: Map<string, unknown> = new Map();
 
-export function tasksRouter(libp2p: LibP2PClient) {
+export function tasksRouter(libp2p: LibP2PClient): Router {
   const router = Router();
 
   router.post('/', async (req, res) => {

@@ -1,15 +1,18 @@
 import dotenv from 'dotenv';
+import path from 'path';
 import { z } from 'zod';
+import type { AgentConfig } from '@agentmesh/agent-sdk';
 import pino from 'pino';
 
-dotenv.config();
+dotenv.config({ path: path.resolve(__dirname, '../.env') });
+dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
 
 const EnvSchema = z.object({
   PRIVATE_KEY: z.string().min(1),
-  BASE_SEPOLIA_RPC_URL: z.string().default('https://sepolia.base.org'),
+  SEPOLIA_RPC_URL: z.string().default('https://rpc.sepolia.org'),
   VENDOR_AGENT_PORT: z.string().transform(Number).default('3004'),
   LIBP2P_PORT: z.string().transform(Number).default('9003'),
-  USDC_ADDRESS_BASE_SEPOLIA: z.string().default('0x036CbD53842c5426634e7929541eC2318f3dCF7e'),
+  USDC_ADDRESS_SEPOLIA: z.string().default('0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238'),
   LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error']).default('info'),
 });
 
@@ -25,18 +28,21 @@ async function main() {
   const app = express();
   app.use(express.json());
 
-  const vendorAgent = new VendorAgent({
+  const baseConfig: AgentConfig = {
     name: 'VendorAgent',
     description: 'Mock vendor agent offering subscription pricing',
     capabilities: ['subscription_pricing'],
     privateKey: env.PRIVATE_KEY,
-    rpcUrl: env.BASE_SEPOLIA_RPC_URL,
-    libp2pPort: env.LIBP2P_PORT,
+    rpcUrl: env.SEPOLIA_RPC_URL,
+    libp2pPort: Number(env.LIBP2P_PORT),
     bootstrapPeers: [],
     logLevel: env.LOG_LEVEL,
+  };
+  const vendorAgent = new VendorAgent({
+    ...baseConfig,
     listPrice: 9.0,
     vendorName: 'BetterComms Pro',
-    usdcAddress: env.USDC_ADDRESS_BASE_SEPOLIA,
+    usdcAddress: env.USDC_ADDRESS_SEPOLIA,
   });
 
   await vendorAgent.start();
@@ -69,7 +75,7 @@ async function main() {
     logger.info({ port: env.VENDOR_AGENT_PORT }, 'VendorAgent HTTP server started');
   });
 
-  vendorAgent.setupGracefulShutdown();
+  // vendorAgent.setupGracefulShutdown(); // Not present on VendorAgent
 }
 
 main().catch((err) => {

@@ -48,7 +48,7 @@ const mockAuditLog: AuditEntry[] = [
   },
 ];
 
-export function auditRouter() {
+export function auditRouter(): Router {
   const router = Router();
 
   router.get('/', (req, res) => {

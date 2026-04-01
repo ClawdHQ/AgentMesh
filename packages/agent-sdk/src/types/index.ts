@@ -7,7 +7,7 @@ export const AgentConfigSchema = z.object({
   description: z.string(),
   capabilities: z.array(z.string()),
   privateKey: z.string(),
-  rpcUrl: z.string().default('https://sepolia.base.org'),
+  rpcUrl: z.string().default('https://rpc.sepolia.org'),
   agentRegistryAddress: z.string().optional(),
   taskEscrowAddress: z.string().optional(),
   auditLoggerAddress: z.string().optional(),

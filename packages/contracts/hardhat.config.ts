@@ -1,15 +1,21 @@
 import { HardhatUserConfig } from 'hardhat/config';
 import '@nomicfoundation/hardhat-toolbox';
 import '@nomicfoundation/hardhat-ignition-ethers';
+import dotenv from 'dotenv';
+import path from 'path';
+
+dotenv.config({ path: path.resolve(__dirname, '.env') });
+dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
 const config: HardhatUserConfig = {
   solidity: {
-    version: '0.8.24',
+    version: '0.8.28',
     settings: {
       optimizer: {
         enabled: true,
         runs: 200,
       },
+      evmVersion: 'cancun',
     },
   },
   networks: {
@@ -20,9 +26,9 @@ const config: HardhatUserConfig = {
       url: 'http://127.0.0.1:8545',
       chainId: 31337,
     },
-    baseSepolia: {
-      url: process.env.BASE_SEPOLIA_RPC_URL || 'https://sepolia.base.org',
-      chainId: 84532,
+    sepolia: {
+      url: process.env.SEPOLIA_RPC_URL || '',
+      chainId: 11155111,
       accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
     },
   },
@@ -31,6 +37,9 @@ const config: HardhatUserConfig = {
     tests: './test',
     cache: './cache',
     artifacts: './artifacts',
+  },
+  etherscan: {
+    apiKey: process.env.ETHERSCAN_API_KEY || '',
   },
 };
 

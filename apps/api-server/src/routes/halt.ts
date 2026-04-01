@@ -6,7 +6,7 @@ export function haltRouter(
   libp2p: LibP2PClient,
   haltState: { halted: boolean; reason: string },
   broadcaster: IntentBroadcaster
-) {
+): Router {
   const router = Router();
 
   router.post('/', async (req, res) => {

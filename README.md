@@ -1,4 +1,4 @@
-# 🕸️ AgentMesh
+# AgentMesh
 
 **Trustless Autonomous Agent Coordination Network**
 
@@ -15,7 +15,7 @@ Built for the **PL Genesis: Frontiers of Collaboration Hackathon** (AI & Robotic
 │                    AGENTMESH 5-LAYER STACK                      │
 ├─────────────────────────────────────────────────────────────────┤
 │  Layer 5: HUMAN OVERSIGHT   │  React Dashboard + Kill Switch    │
-│  Layer 4: PAYMENT           │  x402 + USDC on Base Sepolia      │
+│  Layer 4: PAYMENT           │  x402 + USDC on Ethereum Sepolia  │
 │  Layer 3: IDENTITY          │  ERC-8004 + On-chain Reputation   │
 │  Layer 2: COORDINATION      │  A2A Protocol + Negotiation Engine │
 │  Layer 1: MESSAGING         │  libp2p + Gossipsub + Noise Enc.  │
@@ -59,11 +59,11 @@ cp .env.example .env
 # 3. Build all packages and apps
 pnpm build
 
-# 4. Deploy smart contracts to Base Sepolia (optional — uses mocks otherwise)
+# 4. Deploy smart contracts to Ethereum Sepolia
 pnpm deploy:contracts
 
 # 5. Start the full stack
-docker-compose up
+pnpm dev
 ```
 
 Open **http://localhost:5173** to see the oversight dashboard.
@@ -126,14 +126,14 @@ agentmesh/
 
 ---
 
-## Smart Contract Addresses (Base Sepolia)
+## Smart Contract Addresses (Ethereum Sepolia)
 
 | Contract | Address |
 |----------|---------|
-| AgentRegistry | _Deploy with `pnpm deploy:contracts`_ |
-| TaskEscrow | _Deploy with `pnpm deploy:contracts`_ |
-| ReputationOracle | _Deploy with `pnpm deploy:contracts`_ |
-| AuditLogger | _Deploy with `pnpm deploy:contracts`_ |
+| AgentRegistry | `0x1fba036Ca0B47119a80497A4ca9Fc2328389Ff21` |
+| TaskEscrow | `0x48D2311C32FECB3F36103140D26D66DffF8016d2` |
+| ReputationOracle | `0x6cf44eE0db9C7beAEBeFBcfA79c3C68a8b0f9F16` |
+| AuditLogger | `0x642eC9F1A7340bB607b5d065641aa3ba8A916E47` |
 
 ---
 
@@ -146,7 +146,7 @@ agentmesh/
 | **Protocol Labs / libp2p** | Agent-to-agent messaging + gossipsub | `LibP2PClient.ts` |
 | **Anthropic** | Orchestrator AI (claude-sonnet-4) + MCP tools | `OrchestratorAgent.ts` |
 | **x402 Protocol** | Micropayment challenge-response for agent services | `x402Client.ts` |
-| **Base / EVM** | Smart contracts + USDC payments | `contracts/` |
+| **Ethereum / Sepolia** | Smart contracts + USDC payments | `contracts/` |
 | **ERC-8004** | Agent identity + reputation registry | `AgentRegistry.sol` |
 
 ---
@@ -185,13 +185,34 @@ pnpm lint
 
 ## Environment Variables
 
-See [`.env.example`](.env.example) for all required configuration.
+See [`.env.example`](.env.example) for a sanitized baseline and use the root [`.env`](.env) for your live deployment values.
 
 Key variables:
 - `ANTHROPIC_API_KEY` — Claude API key for orchestrator
 - `PRIVATE_KEY` — Ethereum wallet private key
-- `BASE_SEPOLIA_RPC_URL` — Base Sepolia RPC endpoint
-- `W3_STORAGE_EMAIL` — web3.storage email for IPFS uploads
+- `CHAIN_ID` — `11155111` for Ethereum Sepolia
+- `SEPOLIA_RPC_URL` — Ethereum Sepolia RPC endpoint
+- `USDC_ADDRESS_SEPOLIA` — Sepolia USDC contract used by x402 pricing flows
+- `OPENROUTER_API_KEY` — inference provider key for the structured autonomous system
+- `LIGHTHOUSE_API_KEY` — Filecoin/Lighthouse upload key
+- `LIT_NETWORK` — Lit Protocol network selection
+
+## Vercel Deployment
+
+Use two deploy targets:
+- Deploy the dashboard from `apps/oversight-dashboard` to Vercel.
+- Keep the current API server on a persistent Node host unless you refactor realtime transport away from raw WebSockets.
+
+Recommended setup:
+1. Create a Vercel project for the dashboard and set the Root Directory to `apps/oversight-dashboard`.
+2. Set `VITE_API_URL` to your live API origin and `VITE_WS_URL` to its `/ws` endpoint.
+3. Build locally with `pnpm --filter @agentmesh/oversight-dashboard build` before the first deploy.
+4. Deploy with Git integration or the CLI: `vercel --cwd apps/oversight-dashboard` for previews and `vercel deploy --prod --cwd apps/oversight-dashboard` for production.
+5. Run `apps/api-server` on a long-lived Node host with the same root `.env` values so realtime snapshots and onchain actions remain available.
+
+Notes:
+- The current Express bridge uses a native WebSocket server at `/ws`. Per Vercel's limits documentation, Vercel Functions do not act as a WebSocket server, so the API should stay on a persistent host unless you switch to SSE or a third-party realtime transport.
+- For monorepo imports in the Vercel dashboard, set each project's Root Directory explicitly so installs happen once at the repo root and builds run from the correct app.
 
 ---
 

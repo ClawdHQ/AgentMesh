@@ -9,7 +9,7 @@
     "test": "turbo test",
     "lint": "turbo lint",
     "clean": "turbo clean && rm -rf node_modules",
-    "deploy:contracts": "pnpm --filter contracts deploy",
+    "deploy:contracts": "pnpm --filter @agentmesh/contracts deploy",
     "demo": "pnpm build && docker-compose up"
   },
   "devDependencies": {

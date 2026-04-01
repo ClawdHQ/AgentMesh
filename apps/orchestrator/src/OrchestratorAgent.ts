@@ -70,7 +70,7 @@ export class OrchestratorAgent extends BaseAgent {
     this.anthropic = new Anthropic({ apiKey: config.anthropicApiKey });
     this.libp2p = new LibP2PClient(config.libp2pPort, config.bootstrapPeers, this.identity.agentId);
     this.ipfs = new IPFSStorage();
-    this.x402 = new x402Client(config.privateKey, 84532, config.usdcAddress);
+    this.x402 = new x402Client(config.privateKey, 11155111, config.usdcAddress);
     this.mcp = new MCPClient();
     this.memoryManager = new MemoryManager(this.ipfs, this.identity.agentId);
     this.taskPlanner = new TaskPlanner(this.identity.agentId, this.libp2p);

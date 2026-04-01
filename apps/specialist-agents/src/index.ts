@@ -1,15 +1,17 @@
 import dotenv from 'dotenv';
+import path from 'path';
 import { z } from 'zod';
 import pino from 'pino';
 
-dotenv.config();
+dotenv.config({ path: path.resolve(__dirname, '../.env') });
+dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
 
 const EnvSchema = z.object({
   PRIVATE_KEY: z.string().min(1),
-  BASE_SEPOLIA_RPC_URL: z.string().default('https://sepolia.base.org'),
+  SEPOLIA_RPC_URL: z.string().default('https://rpc.sepolia.org'),
   SPECIALIST_AGENTS_PORT: z.string().transform(Number).default('3003'),
   LIBP2P_PORT: z.string().transform(Number).default('9001'),
-  USDC_ADDRESS_BASE_SEPOLIA: z.string().default('0x036CbD53842c5426634e7929541eC2318f3dCF7e'),
+  USDC_ADDRESS_SEPOLIA: z.string().default('0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238'),
   ANTHROPIC_API_KEY: z.string().optional(),
   LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error']).default('info'),
   DATA_AGENT_PRICE_USDC: z.string().transform(Number).default('1000'),
@@ -35,7 +37,7 @@ async function main() {
     description: 'Fetches subscription data, API pricing, and usage metrics',
     capabilities: ['fetch_subscription_data', 'fetch_api_pricing', 'fetch_usage_metrics'],
     privateKey: env.PRIVATE_KEY,
-    rpcUrl: env.BASE_SEPOLIA_RPC_URL,
+    rpcUrl: env.SEPOLIA_RPC_URL,
     libp2pPort: env.LIBP2P_PORT,
     bootstrapPeers: [],
     logLevel: env.LOG_LEVEL,
@@ -43,7 +45,7 @@ async function main() {
       model: 'per-call',
       amount: BigInt(env.DATA_AGENT_PRICE_USDC),
       currency: 'USDC',
-      token: env.USDC_ADDRESS_BASE_SEPOLIA,
+      token: env.USDC_ADDRESS_SEPOLIA,
     },
   });
 
@@ -53,7 +55,7 @@ async function main() {
       description: 'Analyzes pricing, scores vendors, and calculates savings',
       capabilities: ['analyze_pricing', 'score_vendors', 'calculate_savings'],
       privateKey: env.PRIVATE_KEY,
-      rpcUrl: env.BASE_SEPOLIA_RPC_URL,
+      rpcUrl: env.SEPOLIA_RPC_URL,
       libp2pPort: env.LIBP2P_PORT + 1,
       bootstrapPeers: [],
       logLevel: env.LOG_LEVEL,
@@ -61,7 +63,7 @@ async function main() {
         model: 'per-call',
         amount: BigInt(env.COMPUTE_AGENT_PRICE_USDC),
         currency: 'USDC',
-        token: env.USDC_ADDRESS_BASE_SEPOLIA,
+        token: env.USDC_ADDRESS_SEPOLIA,
       },
     },
     env.ANTHROPIC_API_KEY ?? ''
@@ -72,7 +74,7 @@ async function main() {
     description: 'Signs and submits transactions on-chain',
     capabilities: ['sign_transaction', 'submit_payment', 'update_registry'],
     privateKey: env.PRIVATE_KEY,
-    rpcUrl: env.BASE_SEPOLIA_RPC_URL,
+    rpcUrl: env.SEPOLIA_RPC_URL,
     libp2pPort: env.LIBP2P_PORT + 2,
     bootstrapPeers: [],
     logLevel: env.LOG_LEVEL,
@@ -111,7 +113,7 @@ async function main() {
     logger.info({ port: env.SPECIALIST_AGENTS_PORT }, 'Specialist agents HTTP server started');
   });
 
-  dataAgent.setupGracefulShutdown();
+  // dataAgent.setupGracefulShutdown(); // Not present on DataAgent
 }
 
 main().catch((err) => {

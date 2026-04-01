@@ -10,7 +10,7 @@ export class x402Client {
   private readonly chainId: number;
   private readonly usdcAddress: string;
 
-  constructor(privateKey: string, chainId: number = 84532, usdcAddress: string) {
+  constructor(privateKey: string, chainId: number = 11155111, usdcAddress: string) {
     this.wallet = new Wallet(privateKey);
     this.chainId = chainId;
     this.usdcAddress = usdcAddress;

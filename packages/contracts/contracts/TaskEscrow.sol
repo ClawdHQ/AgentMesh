@@ -6,20 +6,33 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-/// @title TaskEscrow - x402-compatible payment escrow for agent tasks
-/// @notice Manages task lifecycle with escrow-based payment settlement
+interface IAgentIdentityRegistry {
+    function ownerOf(uint256 agentId) external view returns (address);
+    function getAgentWallet(uint256 agentId) external view returns (address);
+}
+
+/// @title TaskEscrow - Onchain settlement for registered autonomous agents
+/// @notice Holds requester funds in escrow and only allows completion by the registered
+/// agent wallet or ERC-8004 owner linked to the executor agent id.
 contract TaskEscrow is Ownable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
-    enum TaskStatus { Created, Funded, Accepted, Completed, Disputed, Refunded }
+    enum TaskStatus {
+        Created,
+        Funded,
+        Accepted,
+        Completed,
+        Disputed,
+        Refunded
+    }
 
     struct Task {
         uint256 taskId;
         address requester;
-        address executor;           // address that accepted the task
+        address executor;
         uint256 executorAgentId;
         uint256 amount;
-        address token;          // address(0) for native ETH
+        address token;
         TaskStatus status;
         string requirementsCID;
         string resultCID;
@@ -31,7 +44,8 @@ contract TaskEscrow is Ownable, ReentrancyGuard {
     mapping(uint256 => Task) private _tasks;
     mapping(address => uint256[]) private _requesterTasks;
 
-    // x402 payment receipt event (compatible with x402 spec)
+    IAgentIdentityRegistry public immutable agentRegistry;
+
     event PaymentReceived(
         uint256 indexed taskId,
         address indexed requester,
@@ -41,7 +55,12 @@ contract TaskEscrow is Ownable, ReentrancyGuard {
         uint256 timestamp
     );
 
-    event TaskCreated(uint256 indexed taskId, address indexed requester, uint256 executorAgentId, string requirementsCID);
+    event TaskCreated(
+        uint256 indexed taskId,
+        address indexed requester,
+        uint256 executorAgentId,
+        string requirementsCID
+    );
     event TaskFunded(uint256 indexed taskId, uint256 amount, address token);
     event TaskAccepted(uint256 indexed taskId, uint256 executorAgentId);
     event TaskCompleted(uint256 indexed taskId, string resultCID, uint256 paymentAmount);
@@ -49,11 +68,12 @@ contract TaskEscrow is Ownable, ReentrancyGuard {
     event DisputeResolved(uint256 indexed taskId, bool favorRequester);
     event TaskRefunded(uint256 indexed taskId, address indexed requester, uint256 amount);
 
-    constructor(address initialOwner) Ownable(initialOwner) {
+    constructor(address initialOwner, address agentRegistryAddress) Ownable(initialOwner) {
+        require(agentRegistryAddress != address(0), "TaskEscrow: zero registry");
+        agentRegistry = IAgentIdentityRegistry(agentRegistryAddress);
         _nextTaskId = 1;
     }
 
-    /// @notice Create a new task
     function createTask(
         uint256 executorAgentId,
         uint256 amount,
@@ -64,6 +84,7 @@ contract TaskEscrow is Ownable, ReentrancyGuard {
         require(bytes(requirementsCID).length > 0, "TaskEscrow: empty requirements CID");
         require(deadline > block.timestamp, "TaskEscrow: deadline in the past");
         require(amount > 0, "TaskEscrow: zero amount");
+        require(_agentExists(executorAgentId), "TaskEscrow: unknown executor agent");
 
         taskId = _nextTaskId++;
         _tasks[taskId] = Task({
@@ -84,7 +105,6 @@ contract TaskEscrow is Ownable, ReentrancyGuard {
         emit TaskCreated(taskId, msg.sender, executorAgentId, requirementsCID);
     }
 
-    /// @notice Fund a task by transferring tokens/ETH to escrow
     function fundTask(uint256 taskId) external payable nonReentrant {
         Task storage task = _tasks[taskId];
         require(task.requester != address(0), "TaskEscrow: task not found");
@@ -99,23 +119,33 @@ contract TaskEscrow is Ownable, ReentrancyGuard {
         }
 
         task.status = TaskStatus.Funded;
+
         emit TaskFunded(taskId, task.amount, task.token);
-        emit PaymentReceived(taskId, msg.sender, task.executorAgentId, task.amount, task.token, block.timestamp);
+        emit PaymentReceived(
+            taskId,
+            msg.sender,
+            task.executorAgentId,
+            task.amount,
+            task.token,
+            block.timestamp
+        );
     }
 
-    /// @notice Accept a task (callable by executor's registered address)
     function acceptTask(uint256 taskId) external {
         Task storage task = _tasks[taskId];
         require(task.requester != address(0), "TaskEscrow: task not found");
         require(task.status == TaskStatus.Funded, "TaskEscrow: task not funded");
         require(block.timestamp <= task.deadline, "TaskEscrow: deadline passed");
 
+        address expectedExecutor = _resolveExecutor(task.executorAgentId);
+        require(msg.sender == expectedExecutor, "TaskEscrow: caller is not registered executor");
+
         task.status = TaskStatus.Accepted;
         task.executor = msg.sender;
+
         emit TaskAccepted(taskId, task.executorAgentId);
     }
 
-    /// @notice Complete a task and release payment to the executor
     function completeTask(uint256 taskId, string calldata resultCID) external nonReentrant {
         Task storage task = _tasks[taskId];
         require(task.requester != address(0), "TaskEscrow: task not found");
@@ -130,7 +160,6 @@ contract TaskEscrow is Ownable, ReentrancyGuard {
         emit TaskCompleted(taskId, resultCID, task.amount);
     }
 
-    /// @notice Dispute a task (requester or owner)
     function disputeTask(uint256 taskId) external {
         Task storage task = _tasks[taskId];
         require(task.requester != address(0), "TaskEscrow: task not found");
@@ -147,7 +176,6 @@ contract TaskEscrow is Ownable, ReentrancyGuard {
         emit TaskDisputed(taskId, msg.sender);
     }
 
-    /// @notice Resolve a dispute (only owner/arbitrator)
     function resolveDispute(uint256 taskId, bool favorRequester) external onlyOwner nonReentrant {
         Task storage task = _tasks[taskId];
         require(task.status == TaskStatus.Disputed, "TaskEscrow: not disputed");
@@ -164,7 +192,6 @@ contract TaskEscrow is Ownable, ReentrancyGuard {
         emit DisputeResolved(taskId, favorRequester);
     }
 
-    /// @notice Auto-release payment if deadline passed and no dispute
     function autoRelease(uint256 taskId) external nonReentrant {
         Task storage task = _tasks[taskId];
         require(task.status == TaskStatus.Accepted, "TaskEscrow: task not accepted");
@@ -175,20 +202,34 @@ contract TaskEscrow is Ownable, ReentrancyGuard {
         emit TaskCompleted(taskId, task.resultCID, task.amount);
     }
 
-    /// @notice Get task details
     function getTask(uint256 taskId) external view returns (Task memory) {
         require(_tasks[taskId].requester != address(0), "TaskEscrow: task not found");
         return _tasks[taskId];
     }
 
-    /// @notice Get tasks by requester
     function getTasksByRequester(address requester) external view returns (uint256[] memory) {
         return _requesterTasks[requester];
     }
 
-    /// @notice Get total task count
     function totalTasks() external view returns (uint256) {
         return _nextTaskId - 1;
+    }
+
+    function _agentExists(uint256 agentId) internal view returns (bool) {
+        try agentRegistry.ownerOf(agentId) returns (address ownerAddr) {
+            return ownerAddr != address(0);
+        } catch {
+            return false;
+        }
+    }
+
+    function _resolveExecutor(uint256 executorAgentId) internal view returns (address) {
+        address executorWallet = agentRegistry.getAgentWallet(executorAgentId);
+        if (executorWallet != address(0)) {
+            return executorWallet;
+        }
+
+        return agentRegistry.ownerOf(executorAgentId);
     }
 
     function _releasePayment(Task storage task) internal {

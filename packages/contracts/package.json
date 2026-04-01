@@ -5,7 +5,11 @@
   "scripts": {
     "build": "hardhat compile",
     "test": "hardhat test",
-    "deploy": "hardhat ignition deploy ignition/AgentMeshModule.ts --network baseSepolia",
+    "deploy": "hardhat run scripts/deploy.ts --network sepolia",
+    "check:deployment": "hardhat run scripts/checkDeployment.ts --network sepolia",
+    "seed:dashboard": "hardhat run scripts/seedDashboardActivity.ts --network sepolia",
+    "verify:deployment": "hardhat run scripts/verifyDeployment.ts --network sepolia",
+    "deploy:ignition": "hardhat ignition deploy ignition/AgentMeshModule.ts --network sepolia",
     "deploy:local": "hardhat ignition deploy ignition/AgentMeshModule.ts --network localhost",
     "lint": "solhint 'contracts/**/*.sol'",
     "clean": "hardhat clean"

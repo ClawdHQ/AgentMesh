@@ -3,7 +3,9 @@ import { BaseAgent, LibP2PClient, IPFSStorage, x402Client } from '@agentmesh/age
 import type { AgentTask, TaskResult, AgentCapability, Bid } from '@agentmesh/agent-sdk';
 import { TOPIC_NEGOTIATION, TOPIC_INTENTS, MAX_VENDOR_DISCOUNT_PERCENT, isoNow } from '@agentmesh/shared';
 
-export interface VendorAgentConfig extends ConstructorParameters<typeof BaseAgent>[0] {
+import type { AgentConfig } from '@agentmesh/agent-sdk';
+
+export interface VendorAgentConfig extends AgentConfig {
   listPrice: number;
   vendorName: string;
   usdcAddress: string;
