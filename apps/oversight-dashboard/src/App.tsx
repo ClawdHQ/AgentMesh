@@ -1354,10 +1354,26 @@ export function App() {
                     <div className="rp-title">Current Escrow Trace</div>
                     <div className="trace-grid">
                       <TraceRow label="Escrow Task" value={`#${latestTask.settlement.taskId}`} />
-                      <TraceRow label="Create Tx" value={truncate(latestTask.settlement.createTxHash, 18)} href={explorerLink(latestTask.settlement.createTxHash)} />
-                      <TraceRow label="Fund Tx" value={truncate(latestTask.settlement.fundTxHash, 18)} href={explorerLink(latestTask.settlement.fundTxHash)} />
-                      <TraceRow label="Accept Tx" value={truncate(latestTask.settlement.acceptTxHash, 18)} href={explorerLink(latestTask.settlement.acceptTxHash)} />
-                      <TraceRow label="Complete Tx" value={truncate(latestTask.settlement.completeTxHash, 18)} href={explorerLink(latestTask.settlement.completeTxHash)} />
+                      <TraceRow
+                        label="Create Tx"
+                        value={latestTask.settlement.createTxHash ? truncate(latestTask.settlement.createTxHash, 18) : 'Unavailable'}
+                        href={latestTask.settlement.createTxHash ? explorerLink(latestTask.settlement.createTxHash) : undefined}
+                      />
+                      <TraceRow
+                        label="Fund Tx"
+                        value={latestTask.settlement.fundTxHash ? truncate(latestTask.settlement.fundTxHash, 18) : 'Unavailable'}
+                        href={latestTask.settlement.fundTxHash ? explorerLink(latestTask.settlement.fundTxHash) : undefined}
+                      />
+                      <TraceRow
+                        label="Accept Tx"
+                        value={latestTask.settlement.acceptTxHash ? truncate(latestTask.settlement.acceptTxHash, 18) : 'Unavailable'}
+                        href={latestTask.settlement.acceptTxHash ? explorerLink(latestTask.settlement.acceptTxHash) : undefined}
+                      />
+                      <TraceRow
+                        label="Complete Tx"
+                        value={latestTask.settlement.completeTxHash ? truncate(latestTask.settlement.completeTxHash, 18) : 'Unavailable'}
+                        href={latestTask.settlement.completeTxHash ? explorerLink(latestTask.settlement.completeTxHash) : undefined}
+                      />
                     </div>
                   </div>
                 )}

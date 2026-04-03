@@ -5,7 +5,7 @@ services:
     repo: https://github.com/ClawdHQ/AgentMesh
     plan: free
     autoDeploy: true
-    buildCommand: pnpm install --frozen-lockfile && pnpm build
+    buildCommand: pnpm install --frozen-lockfile --prod=false && pnpm build
     startCommand: pnpm start:render
     healthCheckPath: /health
     envVars:

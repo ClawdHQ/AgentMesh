@@ -51,6 +51,8 @@ const taskEscrowAbi = [
 const auditLoggerAbi = [
   'function logDecision(uint256 agentId,bytes32 decisionHash,string ipfsCID) external',
   'function totalDecisions() external view returns (uint256)',
+  'function getDecisionCount(uint256 agentId) external view returns (uint256)',
+  'function getDecision(uint256 agentId,uint256 index) external view returns (tuple(uint256 agentId,bytes32 decisionHash,string ipfsCID,uint256 timestamp,address logger))',
   'event DecisionLogged(uint256 indexed agentId,bytes32 indexed decisionHash,string ipfsCID,uint256 timestamp,address logger)',
 ];
 
@@ -309,7 +311,121 @@ export class MeshContractsClient {
 
   async loadDashboardHistory(agents: MeshAgent[]): Promise<HydratedDashboardState> {
     const latestBlock = await this.provider.getBlockNumber();
-    return this.syncHistory(agents, 0, latestBlock);
+    const agentById = new Map<number, MeshAgent>();
+    for (const agent of agents) {
+      if (agent.onchain?.agentId) {
+        agentById.set(agent.onchain.agentId, agent);
+      }
+    }
+
+    const totalTasks = Number((await this.taskEscrow.totalTasks()).toString());
+    const historicalTasks = await Promise.all(
+      Array.from({ length: totalTasks }, async (_, index) => {
+        const taskId = index + 1;
+        try {
+          return await this.taskEscrow.getTask(taskId);
+        } catch {
+          return undefined;
+        }
+      })
+    );
+
+    const tasks = historicalTasks
+      .filter((task): task is Awaited<ReturnType<typeof this.taskEscrow.getTask>> => Boolean(task))
+      .filter((task) => Number(task.status) === 3)
+      .map((task) => {
+        const taskId = Number(task.taskId.toString());
+        const executorAgentId = Number(task.executorAgentId.toString());
+        const paymentAmount = String(task.amount.toString());
+        const winner = agentById.get(executorAgentId);
+        const createdAt = Number(task.createdAt.toString()) * 1000;
+
+        return {
+          id: `historical-task-${taskId}`,
+          title: winner ? `Historical settlement with ${winner.name}` : `Historical Task #${taskId}`,
+          objective: 'Recovered from Ethereum TaskEscrow state',
+          status: 'completed' as const,
+          createdAt,
+          updatedAt: createdAt,
+          autonomyLevel: 4,
+          budgetWei: paymentAmount,
+          baselinePriceWei: paymentAmount,
+          finalPriceWei: paymentAmount,
+          savingsWei: '0',
+          winnerAgentKey: winner?.key,
+          winnerAgentId: executorAgentId,
+          vendorBids: [],
+          requirementsCID: normalizeIpfsValue(String(task.requirementsCID)),
+          resultCID: normalizeIpfsValue(String(task.resultCID)),
+          settlement: {
+            taskId,
+            createTxHash: '',
+            fundTxHash: '',
+            acceptTxHash: '',
+            completeTxHash: '',
+          },
+          errors: [],
+        } satisfies MeshTask;
+      });
+
+    const payments = historicalTasks
+      .filter((task): task is Awaited<ReturnType<typeof this.taskEscrow.getTask>> => Boolean(task))
+      .filter((task) => Number(task.status) === 3)
+      .map((task) => ({
+        id: `historical-payment-${task.taskId.toString()}`,
+        from: String(task.requester),
+        to: String(task.executor),
+        amount: ethers.utils.formatEther(task.amount),
+        currency: 'ETH' as const,
+        status: 'confirmed' as const,
+        timestamp: Number(task.createdAt.toString()) * 1000,
+        taskId: `historical-task-${task.taskId.toString()}`,
+      }));
+
+    const audit: AuditEntry[] = [];
+    for (const [agentId, agent] of agentById.entries()) {
+      const decisionCount = Number((await this.auditLogger.getDecisionCount(agentId)).toString());
+      if (decisionCount === 0) {
+        continue;
+      }
+
+      const decisions = await Promise.all(
+        Array.from({ length: decisionCount }, (_, index) => this.auditLogger.getDecision(agentId, index))
+      );
+
+      for (let index = 0; index < decisions.length; index += 1) {
+        const decision = decisions[index];
+        const decisionHash = String(decision.decisionHash ?? '').replace(/^0x/, '');
+        audit.push({
+          id: `historical-audit-${agentId}-${index}`,
+          agentId: agent.key,
+          agentName: agent.name,
+          action: 'onchain_decision',
+          inputHash: decisionHash,
+          outputHash: decisionHash,
+          ipfsCID: normalizeIpfsValue(String(decision.ipfsCID ?? '')),
+          timestamp: new Date(Number(decision.timestamp.toString()) * 1000).toISOString(),
+        });
+      }
+    }
+
+    const memory = tasks
+      .filter((task) => task.resultCID)
+      .map((task, index) => ({
+        version: index + 1,
+        cid: String(task.resultCID),
+        timestamp: task.updatedAt,
+        summary: `${task.title} recovered from Sepolia settlement history`,
+      }))
+      .sort((left, right) => right.timestamp - left.timestamp);
+
+    return {
+      tasks: tasks.sort((left, right) => right.updatedAt - left.updatedAt),
+      audit: audit.sort((left, right) => Date.parse(right.timestamp) - Date.parse(left.timestamp)),
+      payments: payments.sort((left, right) => right.timestamp - left.timestamp),
+      memory,
+      latestBlock,
+    };
   }
 
   async syncHistory(
