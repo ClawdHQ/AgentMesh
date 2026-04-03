@@ -20,6 +20,7 @@
   },
   "dependencies": {
     "@agentmesh/shared": "workspace:*",
+    "@lighthouse-web3/sdk": "^0.4.5",
     "ethers": "^6.0.0",
     "viem": "^2.0.0",
     "zod": "^3.22.4",

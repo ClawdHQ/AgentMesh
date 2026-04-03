@@ -39,12 +39,18 @@ const auditLoggerAbi = [
   'event DecisionLogged(uint256 indexed agentId,bytes32 indexed decisionHash,string ipfsCID,uint256 timestamp,address logger)',
 ];
 
+const reputationOracleAbi = [
+  'function recordReputation(uint256 agentId,uint256 score,uint256 taskCount,uint256 successCount) external',
+  'function getReputation(uint256 agentId) external view returns (tuple(uint256 agentId,uint256 score,uint256 taskCount,uint256 successCount,uint256 lastUpdated))',
+];
+
 export interface MeshContractConfig {
   chainId: number;
   rpcUrl: string;
   registryAddress: string;
   taskEscrowAddress: string;
   auditLoggerAddress: string;
+  reputationOracleAddress: string;
 }
 
 export interface SettlementResult {
@@ -60,6 +66,7 @@ export interface HydratedDashboardState {
   audit: AuditEntry[];
   payments: PaymentEvent[];
   memory: MemorySnapshot[];
+  latestBlock: number;
 }
 
 export class MeshContractsClient {
@@ -67,6 +74,7 @@ export class MeshContractsClient {
   private readonly registry: ethers.Contract;
   private readonly taskEscrow: ethers.Contract;
   private readonly auditLogger: ethers.Contract;
+  private readonly reputationOracle: ethers.Contract;
 
   constructor(
     private readonly config: MeshContractConfig,
@@ -78,6 +86,11 @@ export class MeshContractsClient {
     this.registry = new ethers.Contract(config.registryAddress, agentRegistryAbi, signer);
     this.taskEscrow = new ethers.Contract(config.taskEscrowAddress, taskEscrowAbi, signer);
     this.auditLogger = new ethers.Contract(config.auditLoggerAddress, auditLoggerAbi, signer);
+    this.reputationOracle = new ethers.Contract(
+      config.reputationOracleAddress,
+      reputationOracleAbi,
+      signer
+    );
   }
 
   static isConfigured(config: Partial<MeshContractConfig>): config is MeshContractConfig {
@@ -86,7 +99,8 @@ export class MeshContractsClient {
         config.chainId &&
         isAddress(config.registryAddress) &&
         isAddress(config.taskEscrowAddress) &&
-        isAddress(config.auditLoggerAddress)
+        isAddress(config.auditLoggerAddress) &&
+        isAddress(config.reputationOracleAddress)
     );
   }
 
@@ -104,6 +118,14 @@ export class MeshContractsClient {
 
   getAuditLoggerAddress(): string {
     return this.config.auditLoggerAddress;
+  }
+
+  getReputationOracleAddress(): string {
+    return this.config.reputationOracleAddress;
+  }
+
+  async getLatestBlockNumber(): Promise<number> {
+    return this.provider.getBlockNumber();
   }
 
   async ensureRegistered(agent: MeshAgent): Promise<OnchainAgentIdentity> {
@@ -189,6 +211,13 @@ export class MeshContractsClient {
   async updateReputation(agentId: number, success: boolean, paymentAmountWei: string): Promise<string> {
     const tx = await this.registry.updateReputation(agentId, success, paymentAmountWei);
     const receipt = await tx.wait();
+    const agent = await this.registry.getAgent(agentId);
+    await this.reputationOracle.recordReputation(
+      agentId,
+      agent.reputationScore,
+      agent.taskCount,
+      agent.successCount
+    );
     return receipt.transactionHash;
   }
 
@@ -234,6 +263,15 @@ export class MeshContractsClient {
   }
 
   async loadDashboardHistory(agents: MeshAgent[]): Promise<HydratedDashboardState> {
+    const latestBlock = await this.provider.getBlockNumber();
+    return this.syncHistory(agents, 0, latestBlock);
+  }
+
+  async syncHistory(
+    agents: MeshAgent[],
+    fromBlock: number,
+    toBlock?: number
+  ): Promise<HydratedDashboardState> {
     const agentById = new Map<number, MeshAgent>();
     for (const agent of agents) {
       if (agent.onchain?.agentId) {
@@ -241,17 +279,28 @@ export class MeshContractsClient {
       }
     }
 
-    const [taskEscrowFromBlock, auditLoggerFromBlock] = await Promise.all([
-      this.findDeploymentBlock(this.config.taskEscrowAddress),
-      this.findDeploymentBlock(this.config.auditLoggerAddress),
-    ]);
+    const latestBlock = toBlock ?? (await this.provider.getBlockNumber());
+    const effectiveFromBlock =
+      fromBlock > 0
+        ? fromBlock
+        : Math.max(
+            0,
+            Math.min(
+              await this.findDeploymentBlock(this.config.taskEscrowAddress),
+              await this.findDeploymentBlock(this.config.auditLoggerAddress)
+            )
+          );
 
     const [createdEvents, fundedEvents, acceptedEvents, completedEvents, decisionEvents] = await Promise.all([
-      this.queryFilterInBatches(this.taskEscrow, this.taskEscrow.filters.TaskCreated(), taskEscrowFromBlock),
-      this.queryFilterInBatches(this.taskEscrow, this.taskEscrow.filters.TaskFunded(), taskEscrowFromBlock),
-      this.queryFilterInBatches(this.taskEscrow, this.taskEscrow.filters.TaskAccepted(), taskEscrowFromBlock),
-      this.queryFilterInBatches(this.taskEscrow, this.taskEscrow.filters.TaskCompleted(), taskEscrowFromBlock),
-      this.queryFilterInBatches(this.auditLogger, this.auditLogger.filters.DecisionLogged(), auditLoggerFromBlock),
+      this.taskEscrow.queryFilter(this.taskEscrow.filters.TaskCreated(), effectiveFromBlock, latestBlock),
+      this.taskEscrow.queryFilter(this.taskEscrow.filters.TaskFunded(), effectiveFromBlock, latestBlock),
+      this.taskEscrow.queryFilter(this.taskEscrow.filters.TaskAccepted(), effectiveFromBlock, latestBlock),
+      this.taskEscrow.queryFilter(this.taskEscrow.filters.TaskCompleted(), effectiveFromBlock, latestBlock),
+      this.auditLogger.queryFilter(
+        this.auditLogger.filters.DecisionLogged(),
+        effectiveFromBlock,
+        latestBlock
+      ),
     ]);
 
     const createdByTaskId = new Map<number, ethers.Event>();
@@ -379,25 +428,8 @@ export class MeshContractsClient {
       audit: audit.sort((left, right) => Date.parse(right.timestamp) - Date.parse(left.timestamp)),
       payments: payments.sort((left, right) => right.timestamp - left.timestamp),
       memory,
+      latestBlock,
     };
-  }
-
-  private async queryFilterInBatches(
-    contract: ethers.Contract,
-    filter: ethers.EventFilter,
-    fromBlock: number
-  ): Promise<ethers.Event[]> {
-    const latestBlock = await this.provider.getBlockNumber();
-    const step = 10;
-    const events: ethers.Event[] = [];
-
-    for (let start = fromBlock; start <= latestBlock; start += step) {
-      const end = Math.min(start + step - 1, latestBlock);
-      const batch = await contract.queryFilter(filter, start, end);
-      events.push(...batch);
-    }
-
-    return events;
   }
 
   private async findDeploymentBlock(address: string): Promise<number> {

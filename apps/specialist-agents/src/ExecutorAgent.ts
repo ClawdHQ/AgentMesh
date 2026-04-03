@@ -1,44 +1,51 @@
 import pino from 'pino';
-import { BaseAgent, LibP2PClient, DecisionProver } from '@agentmesh/agent-sdk';
-import type { AgentTask, TaskResult, AgentCapability } from '@agentmesh/agent-sdk';
-import { TOPIC_INTENTS } from '@agentmesh/shared';
+import { BaseAgent } from '@agentmesh/agent-sdk';
+import type { AgentCapability, AgentTask, TaskResult } from '@agentmesh/agent-sdk';
+import { JsonRpcProvider, Wallet, Contract } from 'ethers';
+
+const agentRegistryAbi = [
+  'function updateReputation(uint256 agentId,bool success,uint256 paymentAmount) external',
+  'function getAgent(uint256 agentId) external view returns (tuple(address owner,address operatorWallet,string agentURI,uint256 reputationScore,uint256 taskCount,uint256 successCount,bool active,uint256 registeredAt))',
+];
+
+const reputationOracleAbi = [
+  'function recordReputation(uint256 agentId,uint256 score,uint256 taskCount,uint256 successCount) external',
+];
 
 export class ExecutorAgent extends BaseAgent {
   private executorLogger = pino({ level: 'info', name: 'ExecutorAgent' });
-  private libp2p: LibP2PClient;
-  private decisionProver: DecisionProver;
+  private provider: JsonRpcProvider;
+  private wallet: Wallet;
+  private registry?: Contract;
+  private reputationOracle?: Contract;
 
-  constructor(config: ConstructorParameters<typeof BaseAgent>[0]) {
+  constructor(config: ConstructorParameters<typeof BaseAgent>[0] & { reputationOracleAddress?: string }) {
     super(config);
-    this.libp2p = new LibP2PClient(
-      config.libp2pPort,
-      config.bootstrapPeers,
-      this.identity.agentId
-    );
-    this.decisionProver = new DecisionProver(config.privateKey);
+    this.provider = new JsonRpcProvider(config.rpcUrl);
+    this.wallet = new Wallet(config.privateKey, this.provider);
+
+    if (config.agentRegistryAddress) {
+      this.registry = new Contract(config.agentRegistryAddress, agentRegistryAbi, this.wallet);
+    }
+    if (config.reputationOracleAddress) {
+      this.reputationOracle = new Contract(
+        config.reputationOracleAddress,
+        reputationOracleAbi,
+        this.wallet
+      );
+    }
   }
 
   getCapabilities(): AgentCapability[] {
     return [
-      { name: 'sign_transaction', description: 'Sign an Ethereum transaction' },
-      { name: 'submit_payment', description: 'Submit a USDC payment to an escrow contract' },
-      { name: 'update_registry', description: 'Update agent reputation in the registry' },
+      { name: 'sign_transaction', description: 'Sign an AgentMesh settlement attestation' },
+      { name: 'submit_payment', description: 'Submit a native ETH payment transaction' },
+      { name: 'update_registry', description: 'Update onchain reputation for a registered agent' },
     ];
   }
 
   async handleTask(task: AgentTask): Promise<TaskResult> {
     this.executorLogger.info({ taskId: task.taskId, type: task.type }, 'ExecutorAgent handling task');
-
-    // Verify we have a valid decision proof before executing
-    if (!task.paymentProof && task.type !== 'sign_transaction') {
-      this.executorLogger.warn({ taskId: task.taskId }, 'Missing payment proof, requiring verification');
-    }
-
-    await this.libp2p.broadcastIntent(
-      this.identity.agentId,
-      'EXECUTING',
-      `Executing ${task.type} on-chain`
-    );
 
     try {
       let result: unknown;
@@ -61,18 +68,6 @@ export class ExecutorAgent extends BaseAgent {
           };
       }
 
-      // Broadcast execution event
-      await this.libp2p.publish(TOPIC_INTENTS, {
-        type: 'intent',
-        from: this.identity.agentId,
-        payload: {
-          action: 'EXECUTED',
-          taskType: task.type,
-          result,
-        },
-        timestamp: Date.now(),
-      });
-
       return {
         taskId: task.taskId,
         success: true,
@@ -89,11 +84,13 @@ export class ExecutorAgent extends BaseAgent {
     }
   }
 
-  private async signTransaction(payload: Record<string, unknown>): Promise<Record<string, unknown>> {
-    // In production, sign with ethers.js wallet
-    const wallet = this.identity.getWallet();
-    const message = JSON.stringify(payload);
-    const signature = await wallet.signMessage(message);
+  private async signTransaction(payload: Record<string, unknown>) {
+    const message = JSON.stringify({
+      agent: this.identity.agentId,
+      payload,
+      timestamp: Date.now(),
+    });
+    const signature = await this.wallet.signMessage(message);
 
     return {
       signed: true,
@@ -104,43 +101,56 @@ export class ExecutorAgent extends BaseAgent {
     };
   }
 
-  private async submitPayment(payload: Record<string, unknown>): Promise<Record<string, unknown>> {
-    // In production, call TaskEscrow.fundTask() via ethers.js
-    const mockTxHash = `0x${Array.from({ length: 64 }, () =>
-      Math.floor(Math.random() * 16).toString(16)
-    ).join('')}`;
+  private async submitPayment(payload: Record<string, unknown>) {
+    const to = typeof payload.to === 'string' ? payload.to : undefined;
+    const valueWei = typeof payload.valueWei === 'string' ? payload.valueWei : undefined;
+    if (!to || !valueWei) {
+      throw new Error('submit_payment requires to and valueWei');
+    }
 
-    this.executorLogger.info(
-      { txHash: mockTxHash, amount: payload.amount },
-      'Payment submitted (mock)'
-    );
+    const tx = await this.wallet.sendTransaction({
+      to,
+      value: BigInt(valueWei),
+      data: typeof payload.data === 'string' ? payload.data : undefined,
+    });
+    const receipt = await tx.wait();
 
     return {
-      txHash: mockTxHash,
-      amount: payload.amount,
-      token: payload.token ?? 'USDC',
-      recipient: payload.recipient,
-      blockExplorer: `https://sepolia.basescan.org/tx/${mockTxHash}`,
-      status: 'confirmed',
+      txHash: tx.hash,
+      status: receipt?.status === 1 ? 'confirmed' : 'failed',
+      blockNumber: receipt?.blockNumber,
       timestamp: new Date().toISOString(),
     };
   }
 
-  private async updateRegistry(payload: Record<string, unknown>): Promise<Record<string, unknown>> {
-    // In production, call AgentRegistry.updateReputation() via ethers.js
-    this.executorLogger.info(
-      { agentId: payload.agentId, success: payload.success },
-      'Registry updated (mock)'
-    );
+  private async updateRegistry(payload: Record<string, unknown>) {
+    if (!this.registry) {
+      throw new Error('AGENT_REGISTRY_ADDRESS is required for update_registry');
+    }
+
+    const agentId = BigInt(String(payload.agentId));
+    const success = Boolean(payload.success);
+    const paymentAmountWei = BigInt(String(payload.paymentAmountWei ?? '0'));
+
+    const tx = await this.registry.updateReputation(agentId, success, paymentAmountWei);
+    await tx.wait();
+
+    if (this.reputationOracle) {
+      const agent = await this.registry.getAgent(agentId);
+      const oracleTx = await this.reputationOracle.recordReputation(
+        agentId,
+        agent.reputationScore,
+        agent.taskCount,
+        agent.successCount
+      );
+      await oracleTx.wait();
+    }
 
     return {
       updated: true,
-      agentId: payload.agentId,
-      success: payload.success,
-      newReputationScore: 55,
-      txHash: `0x${Array.from({ length: 64 }, () =>
-        Math.floor(Math.random() * 16).toString(16)
-      ).join('')}`,
+      agentId: agentId.toString(),
+      success,
+      txHash: tx.hash,
       timestamp: new Date().toISOString(),
     };
   }

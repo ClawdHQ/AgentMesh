@@ -1,25 +1,57 @@
+import { execFile } from 'child_process';
+import { mkdtemp, readFile, rm, writeFile } from 'fs/promises';
+import os from 'os';
+import path from 'path';
+import { promisify } from 'util';
+import lighthouse from '@lighthouse-web3/sdk';
 import { ok, err, Result } from 'neverthrow';
-import { NetworkError, StorageError } from '@agentmesh/shared';
+import { StorageError } from '@agentmesh/shared';
 import type { AgentMemory } from '../types';
+import type { ArtifactReference, StorageProvider } from '@agentmesh/shared';
 
-// IPFS Storage client
-// Uses web3.storage w3up-client in production, falls back to mock for demo
+const execFileAsync = promisify(execFile);
+
 export class IPFSStorage {
   private readonly cache: Map<string, unknown> = new Map();
-  private mockCIDCounter = 1;
   private isConnected = false;
+  private readonly provider: StorageProvider;
+  private readonly lighthouseApiKey?: string;
+  private readonly gatewayBaseUrl: string;
+  private readonly filecoinPinCommand: string;
+  private readonly filecoinPinGatewayUrl: string;
 
   constructor(
     private readonly email?: string,
-    private readonly spaceDid?: string
-  ) {}
+    private readonly spaceDid?: string,
+    options: {
+      provider?: StorageProvider;
+      lighthouseApiKey?: string;
+      gatewayBaseUrl?: string;
+      filecoinPinCommand?: string;
+      filecoinPinGatewayUrl?: string;
+    } = {}
+  ) {
+    this.provider =
+      options.provider ??
+      ((process.env.FILECOIN_STORAGE_PROVIDER as StorageProvider | undefined) || 'lighthouse');
+    this.lighthouseApiKey = options.lighthouseApiKey ?? process.env.LIGHTHOUSE_API_KEY;
+    this.gatewayBaseUrl =
+      options.gatewayBaseUrl ??
+      process.env.LIGHTHOUSE_GATEWAY_URL ??
+      'https://gateway.lighthouse.storage/ipfs/';
+    this.filecoinPinCommand =
+      options.filecoinPinCommand ?? process.env.FILECOIN_PIN_COMMAND ?? 'filecoin-pin';
+    this.filecoinPinGatewayUrl =
+      options.filecoinPinGatewayUrl ??
+      process.env.FILECOIN_PIN_GATEWAY_URL ??
+      'https://ipfs.io/ipfs/';
+  }
 
   async connect(): Promise<Result<void, StorageError>> {
     try {
-      // In production, initialize w3up-client:
-      // const client = await create();
-      // await client.login(this.email);
-      // await client.setCurrentSpace(this.spaceDid);
+      if (this.provider === 'lighthouse' && !this.lighthouseApiKey) {
+        return err(new StorageError('LIGHTHOUSE_API_KEY is required for Lighthouse storage'));
+      }
       this.isConnected = true;
       return ok(undefined);
     } catch (error) {
@@ -31,15 +63,11 @@ export class IPFSStorage {
   async store(data: unknown): Promise<Result<string, StorageError>> {
     try {
       const json = JSON.stringify(data);
-      // In production: upload to web3.storage
-      // const blob = new Blob([json]);
-      // const cid = await this.client.uploadBlob(blob);
-      // return ok(cid.toString());
-
-      // Demo: generate deterministic mock CID
-      const { sha256 } = await import('@agentmesh/shared');
-      const hash = sha256(json).slice(0, 32);
-      const cid = `Qm${hash}${(this.mockCIDCounter++).toString().padStart(12, '0')}`;
+      const artifact =
+        this.provider === 'filecoin-pin'
+          ? await this.storeWithFilecoinPin(json)
+          : await this.storeWithLighthouse(json);
+      const cid = artifact.cid;
       this.cache.set(cid, data);
       return ok(cid);
     } catch (error) {
@@ -57,11 +85,14 @@ export class IPFSStorage {
       }
 
       // In production: fetch from IPFS gateway
-      const response = await fetch(`https://ipfs.io/ipfs/${cid}`);
+      const gatewayBase =
+        this.provider === 'filecoin-pin' ? this.filecoinPinGatewayUrl : this.gatewayBaseUrl;
+      const response = await fetch(`${gatewayBase}${cid}`);
       if (!response.ok) {
         return err(new StorageError(`Failed to retrieve from IPFS: ${response.status}`));
       }
-      const data = await response.json();
+      const text = await response.text();
+      const data = JSON.parse(text) as unknown;
       this.cache.set(cid, data);
       return ok(data);
     } catch (error) {
@@ -110,4 +141,70 @@ export class IPFSStorage {
   isReady(): boolean {
     return this.isConnected;
   }
+
+  private async storeWithLighthouse(contents: string): Promise<ArtifactReference> {
+    if (!this.lighthouseApiKey) {
+      throw new StorageError('LIGHTHOUSE_API_KEY is required for Lighthouse storage');
+    }
+
+    const response = await lighthouse.uploadText(
+      contents,
+      this.lighthouseApiKey,
+      `agentmesh-${Date.now()}.json`
+    );
+    const cid = String(response.data.Hash ?? response.data.cid ?? '');
+
+    if (!cid) {
+      throw new StorageError('Lighthouse upload did not return a CID');
+    }
+
+    return {
+      cid,
+      uri: `ipfs://${cid}`,
+      gatewayUrl: `${this.gatewayBaseUrl}${cid}`,
+      provider: 'lighthouse',
+      network: 'ipfs',
+      createdAt: new Date().toISOString(),
+      contentType: 'application/json',
+      sizeBytes: Buffer.byteLength(contents),
+    };
+  }
+
+  private async storeWithFilecoinPin(contents: string): Promise<ArtifactReference> {
+    const tmpDir = await mkdtemp(path.join(os.tmpdir(), 'agentmesh-filecoin-pin-'));
+    const filePath = path.join(tmpDir, 'artifact.json');
+
+    try {
+      await writeFile(filePath, contents, 'utf8');
+      const { stdout } = await execFileAsync(this.filecoinPinCommand, ['add', filePath, '--auto-fund'], {
+        env: process.env,
+      });
+
+      const cid = matchCliValue(stdout, /Root CID:\s*([A-Za-z0-9]+)/i);
+      if (!cid) {
+        throw new StorageError('Filecoin Pin upload did not return a Root CID');
+      }
+
+      return {
+        cid,
+        uri: `ipfs://${cid}`,
+        gatewayUrl: `${this.filecoinPinGatewayUrl}${cid}`,
+        provider: 'filecoin-pin',
+        network: 'filecoin-calibration',
+        createdAt: new Date().toISOString(),
+        contentType: 'application/json',
+        sizeBytes: Buffer.byteLength(contents),
+        pieceCid: matchCliValue(stdout, /Piece CID:\s*([A-Za-z0-9]+)/i),
+        proofTxHash: matchCliValue(stdout, /Transaction:\s*(0x[a-fA-F0-9]+)/i),
+        dataSetId: matchCliValue(stdout, /Data Set ID:\s*([0-9]+)/i),
+      };
+    } finally {
+      await rm(tmpDir, { recursive: true, force: true });
+    }
+  }
+}
+
+function matchCliValue(output: string, pattern: RegExp): string | undefined {
+  const match = output.match(pattern);
+  return match?.[1];
 }

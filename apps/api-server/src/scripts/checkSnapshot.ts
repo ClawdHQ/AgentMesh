@@ -16,15 +16,28 @@ async function main() {
     registryAddress: process.env.AGENT_REGISTRY_ADDRESS,
     taskEscrowAddress: process.env.TASK_ESCROW_ADDRESS,
     auditLoggerAddress: process.env.AUDIT_LOGGER_ADDRESS,
+    reputationOracleAddress: process.env.REPUTATION_ORACLE_ADDRESS,
     autonomyLevel: Number(process.env.AUTONOMY_LEVEL ?? '4'),
     openRouterApiKey: process.env.OPENROUTER_API_KEY,
     openRouterModel: process.env.OPENROUTER_MODEL,
     lighthouseApiKey: process.env.LIGHTHOUSE_API_KEY,
     lighthouseGatewayUrl: process.env.LIGHTHOUSE_GATEWAY_URL,
     litNetwork: process.env.LIT_NETWORK,
+    filecoinStorageProvider: process.env.FILECOIN_STORAGE_PROVIDER as any,
+    orchestratorServiceUrl: process.env.ORCHESTRATOR_SERVICE_URL,
+    specialistServiceUrl: process.env.SPECIALIST_SERVICE_URL,
+    vendorServiceUrls: (process.env.VENDOR_SERVICE_URLS ?? '')
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean),
+    internalServiceApiKey: process.env.INTERNAL_SERVICE_API_KEY,
+    impulseApiKey: process.env.IMPULSE_API_KEY,
+    impulseDeploymentId: process.env.IMPULSE_DEPLOYMENT_ID,
+    publicApiUrl: process.env.PUBLIC_API_URL,
+    publicDashboardUrl: process.env.PUBLIC_DASHBOARD_URL,
   });
 
-  await runtime.initialize();
+  await runtime.awaitReady();
   const snapshot = runtime.getSnapshot();
 
   console.log(

@@ -1,0 +1,1323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AgentMesh — Trustless Agent Coordination Network</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Syne:wght@400;500;600;700;800&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+--bg:#06080f;--bg1:#0c0f1a;--bg2:#111627;--bg3:#1a2035;
+--border:#1e2a45;--border2:#2a3a5c;
+--text:#e8edf8;--text2:#8fa3c8;--text3:#4a6080;
+--purple:#7c6aff;--purple2:#a896ff;--purple3:#3d2fa8;
+--teal:#00d4aa;--teal2:#00a882;--teal3:#003d30;
+--coral:#ff6b6b;--coral2:#ff9a9a;
+--amber:#ffb347;--amber2:#ffd47a;
+--green:#4ade80;--green2:#22c55e;
+--blue:#38bdf8;
+--font-display:'Syne',sans-serif;
+--font-mono:'JetBrains Mono',monospace;
+--font-ui:'Space Mono',monospace;
+}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--text);font-family:var(--font-display);overflow-x:hidden;min-height:100vh}
+
+/* ── SCROLLBAR ── */
+::-webkit-scrollbar{width:4px}
+::-webkit-scrollbar-track{background:var(--bg1)}
+::-webkit-scrollbar-thumb{background:var(--purple3);border-radius:2px}
+
+/* ── GRID BG ── */
+body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(var(--border) 1px,transparent 1px),linear-gradient(90deg,var(--border) 1px,transparent 1px);background-size:40px 40px;opacity:.3;pointer-events:none;z-index:0}
+
+/* ── NAV ── */
+nav{position:fixed;top:0;left:0;right:0;z-index:1000;display:flex;align-items:center;justify-content:space-between;padding:0 32px;height:56px;background:rgba(6,8,15,.85);backdrop-filter:blur(20px);border-bottom:1px solid var(--border)}
+.nav-logo{display:flex;align-items:center;gap:10px;font-size:18px;font-weight:800;letter-spacing:-.5px}
+.logo-hex{width:28px;height:28px;position:relative;display:flex;align-items:center;justify-content:center}
+.logo-hex svg{width:28px;height:28px}
+.nav-links{display:flex;gap:4px}
+.nav-links a{padding:6px 14px;font-size:12px;color:var(--text2);text-decoration:none;border-radius:6px;transition:all .2s;font-family:var(--font-ui);letter-spacing:.02em}
+.nav-links a:hover,.nav-links a.active{color:var(--text);background:var(--bg2)}
+.nav-right{display:flex;align-items:center;gap:10px}
+.badge-live{display:flex;align-items:center;gap:6px;font-family:var(--font-mono);font-size:10px;color:var(--green);padding:4px 10px;border:1px solid rgba(74,222,128,.2);border-radius:20px;background:rgba(74,222,128,.05)}
+.dot-live{width:6px;height:6px;border-radius:50%;background:var(--green);animation:pulse-green 2s infinite}
+@keyframes pulse-green{0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(74,222,128,.4)}50%{opacity:.8;box-shadow:0 0 0 4px rgba(74,222,128,0)}}
+
+/* ── KILL SWITCH BTN ── */
+.btn-kill{padding:6px 14px;font-family:var(--font-ui);font-size:11px;font-weight:700;color:#fff;background:linear-gradient(135deg,#8b0000,#cc0000);border:1px solid rgba(255,107,107,.3);border-radius:6px;cursor:pointer;letter-spacing:.05em;transition:all .2s}
+.btn-kill:hover{background:linear-gradient(135deg,#cc0000,#ff3333);box-shadow:0 0 20px rgba(255,51,51,.4)}
+.btn-kill.halted{background:linear-gradient(135deg,#1a1a1a,#2a2a2a);color:var(--green);border-color:rgba(74,222,128,.3)}
+
+/* ── LAYOUT ── */
+.app{display:grid;grid-template-columns:240px 1fr 320px;grid-template-rows:56px 1fr;min-height:100vh;position:relative;z-index:1}
+.sidebar{grid-row:2;padding-top:16px;background:var(--bg1);border-right:1px solid var(--border);overflow-y:auto;padding-bottom:80px}
+.main{grid-row:2;overflow-y:auto;padding-bottom:80px}
+.rightpanel{grid-row:2;background:var(--bg1);border-left:1px solid var(--border);overflow-y:auto;padding-bottom:80px}
+
+/* ── SIDEBAR ── */
+.sidebar-section{padding:8px 12px 4px;font-family:var(--font-mono);font-size:9px;color:var(--text3);letter-spacing:.12em;text-transform:uppercase}
+.agent-item{display:flex;align-items:center;gap:10px;padding:10px 16px;cursor:pointer;transition:all .15s;border-left:2px solid transparent;position:relative}
+.agent-item:hover{background:var(--bg2);border-left-color:var(--border2)}
+.agent-item.active{background:var(--bg2);border-left-color:var(--purple)}
+.agent-avatar{width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0;position:relative}
+.agent-avatar::after{content:'';position:absolute;bottom:-2px;right:-2px;width:8px;height:8px;border-radius:50%;border:2px solid var(--bg1)}
+.status-running::after{background:var(--green)}
+.status-thinking::after{background:var(--amber);animation:pulse-amber 1.5s infinite}
+.status-halted::after{background:var(--coral)}
+.status-waiting::after{background:var(--blue)}
+@keyframes pulse-amber{0%,100%{opacity:1}50%{opacity:.4}}
+.agent-info{flex:1;min-width:0}
+.agent-name{font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.agent-intent{font-size:10px;color:var(--text3);font-family:var(--font-mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.agent-rep{font-family:var(--font-mono);font-size:10px;color:var(--purple2);flex-shrink:0}
+.sidebar-divider{height:1px;background:var(--border);margin:8px 16px}
+
+/* ── MAIN HEADER ── */
+.main-header{padding:24px 28px 16px;border-bottom:1px solid var(--border)}
+.main-title{font-size:22px;font-weight:800;letter-spacing:-.5px;margin-bottom:4px}
+.main-subtitle{font-size:12px;color:var(--text2);font-family:var(--font-mono)}
+.tab-bar{display:flex;gap:2px;padding:16px 28px 0;border-bottom:1px solid var(--border)}
+.tab{padding:8px 16px;font-size:12px;font-family:var(--font-ui);color:var(--text3);cursor:pointer;border-bottom:2px solid transparent;transition:all .2s;letter-spacing:.02em}
+.tab:hover{color:var(--text2)}
+.tab.active{color:var(--purple2);border-bottom-color:var(--purple)}
+
+/* ── PANELS ── */
+.panel{display:none;padding:24px 28px}
+.panel.active{display:block}
+
+/* ── METRIC CARDS ── */
+.metrics-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:24px}
+.metric-card{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:16px;position:relative;overflow:hidden}
+.metric-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px}
+.metric-card.purple::before{background:linear-gradient(90deg,var(--purple),var(--purple2))}
+.metric-card.teal::before{background:linear-gradient(90deg,var(--teal2),var(--teal))}
+.metric-card.amber::before{background:linear-gradient(90deg,#f59e0b,var(--amber2))}
+.metric-card.green::before{background:linear-gradient(90deg,var(--green2),var(--green))}
+.metric-label{font-size:10px;color:var(--text3);font-family:var(--font-mono);letter-spacing:.08em;margin-bottom:8px;text-transform:uppercase}
+.metric-value{font-size:26px;font-weight:800;letter-spacing:-1px;font-family:var(--font-display)}
+.metric-delta{font-size:10px;font-family:var(--font-mono);margin-top:4px}
+.delta-pos{color:var(--green)}
+.delta-neg{color:var(--coral)}
+
+/* ── NEGOTIATION TIMELINE ── */
+.section-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+.section-title{font-size:14px;font-weight:700;letter-spacing:-.2px}
+.section-badge{font-family:var(--font-mono);font-size:9px;padding:3px 8px;border-radius:4px;letter-spacing:.06em}
+.badge-active{background:rgba(124,106,255,.15);color:var(--purple2);border:1px solid rgba(124,106,255,.3)}
+.badge-complete{background:rgba(0,212,170,.1);color:var(--teal);border:1px solid rgba(0,212,170,.2)}
+.badge-pending{background:rgba(255,179,71,.1);color:var(--amber);border:1px solid rgba(255,179,71,.2)}
+
+.negotiation-card{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:16px;position:relative}
+.neg-header{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:16px}
+.neg-title{font-size:14px;font-weight:700}
+.neg-meta{font-size:11px;color:var(--text2);font-family:var(--font-mono);margin-top:2px}
+.neg-timeline{position:relative;padding-left:20px}
+.neg-timeline::before{content:'';position:absolute;left:7px;top:8px;bottom:8px;width:1px;background:var(--border2)}
+.neg-step{display:flex;gap:12px;margin-bottom:14px;position:relative}
+.neg-step::before{content:'';position:absolute;left:-13px;top:6px;width:8px;height:8px;border-radius:50%;background:var(--bg3);border:1px solid var(--border2)}
+.neg-step.done::before{background:var(--teal);border-color:var(--teal);box-shadow:0 0 8px rgba(0,212,170,.4)}
+.neg-step.active::before{background:var(--purple);border-color:var(--purple);animation:pulse-purple 1.5s infinite}
+.neg-step.pending::before{background:var(--bg3)}
+@keyframes pulse-purple{0%,100%{box-shadow:0 0 0 0 rgba(124,106,255,.4)}50%{box-shadow:0 0 0 5px rgba(124,106,255,0)}}
+.neg-step-content{flex:1}
+.neg-step-label{font-size:11px;font-weight:600;margin-bottom:2px}
+.neg-step-detail{font-size:10px;color:var(--text3);font-family:var(--font-mono)}
+.neg-step-time{font-size:9px;color:var(--text3);font-family:var(--font-mono);flex-shrink:0;margin-top:1px}
+
+.price-comparison{display:flex;gap:12px;margin-top:16px;padding-top:16px;border-top:1px solid var(--border)}
+.price-box{flex:1;text-align:center;padding:12px;border-radius:8px}
+.price-box.old{background:rgba(255,107,107,.06);border:1px solid rgba(255,107,107,.15)}
+.price-box.new{background:rgba(0,212,170,.06);border:1px solid rgba(0,212,170,.2)}
+.price-label{font-size:9px;font-family:var(--font-mono);color:var(--text3);margin-bottom:4px;text-transform:uppercase;letter-spacing:.08em}
+.price-value{font-size:20px;font-weight:800;font-family:var(--font-display)}
+.price-box.old .price-value{color:var(--coral);text-decoration:line-through}
+.price-box.new .price-value{color:var(--teal)}
+.price-saving{background:rgba(74,222,128,.1);border:1px solid rgba(74,222,128,.2);border-radius:8px;padding:10px;text-align:center;flex:0 0 100px}
+.saving-amount{font-size:16px;font-weight:800;color:var(--green);font-family:var(--font-display)}
+.saving-label{font-size:9px;color:var(--text3);font-family:var(--font-mono)}
+
+.approve-btn{display:flex;align-items:center;gap:8px;width:100%;padding:12px 20px;margin-top:16px;background:linear-gradient(135deg,var(--teal3),rgba(0,168,130,.3));border:1px solid rgba(0,212,170,.3);border-radius:8px;color:var(--teal);font-family:var(--font-ui);font-size:12px;font-weight:700;cursor:pointer;justify-content:center;letter-spacing:.04em;transition:all .2s}
+.approve-btn:hover{background:linear-gradient(135deg,rgba(0,168,130,.4),rgba(0,212,170,.2));box-shadow:0 0 24px rgba(0,212,170,.2)}
+
+/* ── INTENT FEED ── */
+.intent-feed{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px;height:280px;overflow-y:auto;font-family:var(--font-mono);font-size:11px}
+.intent-line{display:flex;gap:8px;padding:4px 0;border-bottom:1px solid rgba(30,42,69,.5);align-items:flex-start}
+.intent-line:last-child{border-bottom:none}
+.intent-ts{color:var(--text3);flex-shrink:0;font-size:9px;margin-top:1px}
+.intent-agent{flex-shrink:0;font-size:9px;padding:1px 6px;border-radius:3px;margin-top:0px}
+.tag-orch{background:rgba(124,106,255,.15);color:var(--purple2)}
+.tag-data{background:rgba(0,212,170,.1);color:var(--teal)}
+.tag-compute{background:rgba(255,179,71,.1);color:var(--amber)}
+.tag-executor{background:rgba(56,189,248,.1);color:var(--blue)}
+.tag-vendor{background:rgba(255,107,107,.1);color:var(--coral)}
+.tag-human{background:rgba(74,222,128,.1);color:var(--green)}
+.intent-msg{color:var(--text2);flex:1;line-height:1.5}
+
+/* ── SWARM MAP ── */
+.swarm-map{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:20px;height:280px;position:relative;overflow:hidden}
+.swarm-map canvas{width:100%;height:100%}
+.swarm-legend{display:flex;gap:12px;margin-top:12px;flex-wrap:wrap}
+.legend-item{display:flex;align-items:center;gap:5px;font-size:10px;font-family:var(--font-mono);color:var(--text2)}
+.legend-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+
+/* ── AGENT DETAIL PANEL ── */
+.agent-detail{padding:20px}
+.agent-detail-header{display:flex;align-items:center;gap:14px;margin-bottom:20px;padding-bottom:20px;border-bottom:1px solid var(--border)}
+.agent-detail-avatar{width:48px;height:48px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:22px}
+.agent-detail-name{font-size:16px;font-weight:800}
+.agent-detail-id{font-size:10px;color:var(--text3);font-family:var(--font-mono);margin-top:2px}
+.detail-section{margin-bottom:20px}
+.detail-section-title{font-size:10px;color:var(--text3);font-family:var(--font-mono);letter-spacing:.1em;text-transform:uppercase;margin-bottom:10px}
+.stat-row{display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid rgba(30,42,69,.5)}
+.stat-row:last-child{border-bottom:none}
+.stat-label{font-size:11px;color:var(--text2)}
+.stat-value{font-size:11px;font-family:var(--font-mono);font-weight:500}
+.rep-bar{height:4px;background:var(--bg3);border-radius:2px;margin-top:6px;overflow:hidden}
+.rep-fill{height:100%;border-radius:2px;background:linear-gradient(90deg,var(--purple),var(--teal));transition:width .8s ease}
+.capability-chip{display:inline-block;padding:3px 8px;font-size:9px;font-family:var(--font-mono);border-radius:4px;background:var(--bg3);border:1px solid var(--border2);color:var(--text2);margin:2px}
+
+/* ── AUDIT LOG ── */
+.audit-entry{display:flex;gap:12px;padding:12px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;margin-bottom:8px;cursor:pointer;transition:border-color .2s}
+.audit-entry:hover{border-color:var(--border2)}
+.audit-icon{width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0}
+.audit-content{flex:1;min-width:0}
+.audit-action{font-size:11px;font-weight:600;margin-bottom:2px}
+.audit-detail{font-size:10px;color:var(--text3);font-family:var(--font-mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.audit-cid{font-size:9px;color:var(--purple2);font-family:var(--font-mono);margin-top:4px;display:flex;align-items:center;gap:4px}
+.audit-time{font-size:9px;color:var(--text3);font-family:var(--font-mono);flex-shrink:0}
+
+/* ── PAYMENT FLOW ── */
+.payment-flow{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:16px}
+.payment-step{display:flex;align-items:center;gap:12px;padding:10px 0}
+.payment-step+.payment-step{border-top:1px solid var(--border)}
+.pay-icon{width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0}
+.pay-info{flex:1}
+.pay-title{font-size:12px;font-weight:600}
+.pay-sub{font-size:10px;color:var(--text3);font-family:var(--font-mono)}
+.pay-amount{font-family:var(--font-mono);font-size:12px;font-weight:700}
+.pay-amount.debit{color:var(--coral)}
+.pay-amount.credit{color:var(--green)}
+.pay-amount.locked{color:var(--amber)}
+.pay-status{font-size:9px;font-family:var(--font-mono);padding:2px 6px;border-radius:3px}
+.ps-confirmed{background:rgba(74,222,128,.1);color:var(--green)}
+.ps-pending{background:rgba(255,179,71,.1);color:var(--amber)}
+.ps-locked{background:rgba(56,189,248,.1);color:var(--blue)}
+
+/* ── AUTONOMY CONTROL ── */
+.autonomy-control{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:16px}
+.autonomy-levels{display:flex;flex-direction:column;gap:8px;margin-top:12px}
+.autonomy-level{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:8px;cursor:pointer;border:1px solid transparent;transition:all .2s}
+.autonomy-level:hover{background:var(--bg3)}
+.autonomy-level.selected{background:rgba(124,106,255,.1);border-color:rgba(124,106,255,.3)}
+.autonomy-radio{width:14px;height:14px;border-radius:50%;border:2px solid var(--border2);flex-shrink:0;transition:all .2s;position:relative}
+.autonomy-level.selected .autonomy-radio{border-color:var(--purple);background:var(--purple)}
+.autonomy-level.selected .autonomy-radio::after{content:'';position:absolute;inset:2px;border-radius:50%;background:#fff}
+.autonomy-text{flex:1}
+.autonomy-name{font-size:11px;font-weight:600}
+.autonomy-desc{font-size:9px;color:var(--text3);font-family:var(--font-mono)}
+
+/* ── RIGHT PANEL SECTIONS ── */
+.rp-section{padding:16px;border-bottom:1px solid var(--border)}
+.rp-title{font-size:11px;font-family:var(--font-mono);color:var(--text3);text-transform:uppercase;letter-spacing:.1em;margin-bottom:12px}
+
+/* ── AGENT CARDS GRID (overview) ── */
+.agents-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:24px}
+.agent-card-full{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px;cursor:pointer;transition:all .2s;position:relative;overflow:hidden}
+.agent-card-full:hover{border-color:var(--border2);transform:translateY(-1px)}
+.agent-card-full.selected{border-color:var(--purple);box-shadow:0 0 0 1px rgba(124,106,255,.3)}
+.agent-card-full::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;opacity:0;transition:opacity .2s}
+.agent-card-full.selected::before,.agent-card-full:hover::before{opacity:1}
+.acf-orch::before{background:linear-gradient(90deg,var(--purple),var(--purple2))}
+.acf-data::before{background:linear-gradient(90deg,var(--teal2),var(--teal))}
+.acf-compute::before{background:linear-gradient(90deg,#f59e0b,var(--amber2))}
+.acf-exec::before{background:linear-gradient(90deg,var(--blue),#818cf8)}
+.acf-vendor::before{background:linear-gradient(90deg,var(--coral),var(--coral2))}
+.acf-header{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+.acf-avatar{width:36px;height:36px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:18px}
+.acf-name{font-size:12px;font-weight:700}
+.acf-type{font-size:9px;color:var(--text3);font-family:var(--font-mono)}
+.acf-status{margin-left:auto;display:flex;align-items:center;gap:4px;font-size:9px;font-family:var(--font-mono)}
+.status-dot{width:6px;height:6px;border-radius:50%}
+.sd-green{background:var(--green)}
+.sd-amber{background:var(--amber);animation:pulse-amber 1.5s infinite}
+.sd-red{background:var(--coral)}
+.sd-blue{background:var(--blue)}
+.acf-stats{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px}
+.acf-stat{background:var(--bg3);border-radius:6px;padding:7px 8px}
+.acf-stat-val{font-size:13px;font-weight:700;font-family:var(--font-display)}
+.acf-stat-key{font-size:9px;color:var(--text3);font-family:var(--font-mono)}
+.acf-intent{font-size:10px;color:var(--text2);font-family:var(--font-mono);margin-top:10px;padding:8px;background:var(--bg3);border-radius:6px;border-left:2px solid var(--border2)}
+.acf-intent.orch{border-left-color:var(--purple)}
+.acf-intent.data{border-left-color:var(--teal)}
+.acf-intent.compute{border-left-color:var(--amber)}
+.acf-intent.exec{border-left-color:var(--blue)}
+
+/* ── ZK PROOF MODAL ── */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);backdrop-filter:blur(4px);z-index:2000;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity .2s}
+.modal-overlay.open{opacity:1;pointer-events:all}
+.modal{background:var(--bg1);border:1px solid var(--border2);border-radius:16px;padding:28px;width:520px;max-width:90vw;max-height:80vh;overflow-y:auto}
+.modal-title{font-size:16px;font-weight:800;margin-bottom:4px}
+.modal-sub{font-size:11px;color:var(--text3);font-family:var(--font-mono);margin-bottom:20px}
+.proof-block{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:12px;font-family:var(--font-mono);font-size:10px}
+.proof-key{color:var(--text3);font-size:9px;margin-bottom:4px;text-transform:uppercase;letter-spacing:.08em}
+.proof-val{color:var(--purple2);word-break:break-all;line-height:1.6}
+.proof-val.green{color:var(--teal)}
+.close-btn{display:flex;align-items:center;justify-content:center;width:100%;padding:10px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;color:var(--text2);font-family:var(--font-ui);font-size:11px;cursor:pointer;margin-top:16px;transition:all .2s}
+.close-btn:hover{border-color:var(--border2);color:var(--text)}
+
+/* ── REGISTRY TABLE ── */
+.registry-table{width:100%;border-collapse:collapse;font-size:11px}
+.registry-table th{text-align:left;padding:8px 12px;font-size:9px;font-family:var(--font-mono);color:var(--text3);letter-spacing:.08em;text-transform:uppercase;border-bottom:1px solid var(--border);background:var(--bg)}
+.registry-table td{padding:10px 12px;border-bottom:1px solid rgba(30,42,69,.5);vertical-align:middle}
+.registry-table tr:hover td{background:var(--bg2)}
+.registry-table tr:last-child td{border-bottom:none}
+.onchain-badge{font-family:var(--font-mono);font-size:8px;padding:2px 6px;background:rgba(56,189,248,.1);border:1px solid rgba(56,189,248,.2);border-radius:3px;color:var(--blue)}
+.rep-mini{display:flex;align-items:center;gap:6px}
+.rep-mini-bar{flex:1;height:3px;background:var(--bg3);border-radius:2px;overflow:hidden}
+.rep-mini-fill{height:100%;background:linear-gradient(90deg,var(--purple),var(--teal));border-radius:2px}
+
+/* ── DEMO TRIGGER ── */
+.demo-banner{background:linear-gradient(135deg,rgba(124,106,255,.15),rgba(0,212,170,.08));border:1px solid rgba(124,106,255,.25);border-radius:12px;padding:20px;margin-bottom:24px;display:flex;align-items:center;gap:16px}
+.demo-icon{font-size:28px}
+.demo-text{flex:1}
+.demo-title{font-size:14px;font-weight:800;margin-bottom:4px}
+.demo-desc{font-size:11px;color:var(--text2);font-family:var(--font-mono)}
+.demo-btn{padding:10px 20px;background:linear-gradient(135deg,var(--purple3),rgba(124,106,255,.3));border:1px solid rgba(124,106,255,.5);border-radius:8px;color:var(--purple2);font-family:var(--font-ui);font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;letter-spacing:.04em;transition:all .2s;flex-shrink:0}
+.demo-btn:hover{background:linear-gradient(135deg,rgba(124,106,255,.4),rgba(168,150,255,.2));box-shadow:0 0 24px rgba(124,106,255,.3)}
+.demo-btn:disabled{opacity:.5;cursor:not-allowed}
+
+/* ── PROGRESS BAR ── */
+.progress-bar{height:3px;background:var(--bg3);border-radius:2px;overflow:hidden;margin-top:8px}
+.progress-fill{height:100%;background:linear-gradient(90deg,var(--purple),var(--teal));border-radius:2px;width:0;transition:width .5s ease}
+
+/* ── TOOLTIP ── */
+[data-tip]{position:relative}
+[data-tip]:hover::after{content:attr(data-tip);position:absolute;bottom:calc(100% + 6px);left:50%;transform:translateX(-50%);background:var(--bg3);border:1px solid var(--border2);color:var(--text);font-family:var(--font-mono);font-size:10px;padding:4px 8px;border-radius:4px;white-space:nowrap;z-index:100;pointer-events:none}
+
+/* ── SCROLLBARS in panels ── */
+.intent-feed::-webkit-scrollbar{width:3px}
+.intent-feed::-webkit-scrollbar-thumb{background:var(--border2)}
+
+/* ── TOAST ── */
+.toast-container{position:fixed;bottom:24px;right:24px;z-index:3000;display:flex;flex-direction:column;gap:8px;pointer-events:none}
+.toast{background:var(--bg2);border:1px solid var(--border2);border-radius:10px;padding:12px 16px;font-size:11px;font-family:var(--font-mono);max-width:280px;pointer-events:all;animation:slide-in .3s ease;display:flex;align-items:center;gap:8px}
+.toast.success{border-color:rgba(74,222,128,.3)}
+.toast.warning{border-color:rgba(255,179,71,.3)}
+.toast.error{border-color:rgba(255,107,107,.3)}
+@keyframes slide-in{from{transform:translateX(100%);opacity:0}to{transform:translateX(0);opacity:1}}
+@keyframes slide-out{to{transform:translateX(110%);opacity:0}}
+
+/* ── HALTED OVERLAY ── */
+.halted-overlay{position:fixed;inset:0;z-index:900;pointer-events:none;border:3px solid transparent;transition:border-color .3s}
+.halted-overlay.active{border-color:rgba(255,51,51,.5);pointer-events:none}
+.halted-banner{position:fixed;top:56px;left:0;right:0;z-index:899;background:rgba(139,0,0,.9);border-bottom:1px solid rgba(255,107,107,.4);padding:8px;text-align:center;font-family:var(--font-ui);font-size:12px;font-weight:700;color:#fff;letter-spacing:.1em;transform:translateY(-100%);transition:transform .3s}
+.halted-banner.active{transform:translateY(0)}
+
+/* ── ANIMATIONS ── */
+@keyframes fade-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+.fade-in{animation:fade-in .4s ease both}
+</style>
+</head>
+<body>
+
+<!-- HALTED OVERLAY -->
+<div class="halted-overlay" id="haltedOverlay"></div>
+<div class="halted-banner" id="haltedBanner">⛔ MESH HALTED — ALL AGENTS SUSPENDED — CLICK RESUME TO RESTART</div>
+
+<!-- NAV -->
+<nav>
+  <div class="nav-logo">
+    <div class="logo-hex">
+      <svg viewBox="0 0 28 28" fill="none">
+        <polygon points="14,2 26,8 26,20 14,26 2,20 2,8" fill="none" stroke="#7c6aff" stroke-width="1.5"/>
+        <polygon points="14,7 21,11 21,17 14,21 7,17 7,11" fill="rgba(124,106,255,.2)" stroke="#a896ff" stroke-width="1"/>
+        <circle cx="14" cy="14" r="2.5" fill="#7c6aff"/>
+      </svg>
+    </div>
+    AgentMesh
+  </div>
+  <div class="nav-links">
+    <a href="#" class="active" onclick="showPanel('overview',this)">Overview</a>
+    <a href="#" onclick="showPanel('negotiate',this)">Negotiate</a>
+    <a href="#" onclick="showPanel('registry',this)">Registry</a>
+    <a href="#" onclick="showPanel('audit',this)">Audit</a>
+    <a href="#" onclick="showPanel('payments',this)">Payments</a>
+    <a href="#" onclick="showPanel('memory',this)">Memory</a>
+  </div>
+  <div class="nav-right">
+    <div class="badge-live"><span class="dot-live"></span>BASE SEPOLIA</div>
+    <button class="btn-kill" id="killBtn" onclick="toggleKill()">⛔ KILL SWITCH</button>
+  </div>
+</nav>
+
+<!-- APP SHELL -->
+<div class="app">
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+    <div class="sidebar-section">Agents</div>
+    <div class="agent-item active" onclick="selectAgent(0,this)">
+      <div class="agent-avatar status-running" style="background:rgba(124,106,255,.15)">🤖</div>
+      <div class="agent-info">
+        <div class="agent-name">Orchestrator</div>
+        <div class="agent-intent" id="si-0">Monitoring subscriptions…</div>
+      </div>
+      <div class="agent-rep">98</div>
+    </div>
+    <div class="agent-item" onclick="selectAgent(1,this)">
+      <div class="agent-avatar status-running" style="background:rgba(0,212,170,.1)">📡</div>
+      <div class="agent-info">
+        <div class="agent-name">Data Agent</div>
+        <div class="agent-intent" id="si-1">Idle</div>
+      </div>
+      <div class="agent-rep">87</div>
+    </div>
+    <div class="agent-item" onclick="selectAgent(2,this)">
+      <div class="agent-avatar status-thinking" style="background:rgba(255,179,71,.1)">🧮</div>
+      <div class="agent-info">
+        <div class="agent-name">Compute Agent</div>
+        <div class="agent-intent" id="si-2">Analyzing vendors…</div>
+      </div>
+      <div class="agent-rep">92</div>
+    </div>
+    <div class="agent-item" onclick="selectAgent(3,this)">
+      <div class="agent-avatar status-waiting" style="background:rgba(56,189,248,.1)">⚡</div>
+      <div class="agent-info">
+        <div class="agent-name">Executor Agent</div>
+        <div class="agent-intent" id="si-3">Awaiting approval</div>
+      </div>
+      <div class="agent-rep">95</div>
+    </div>
+    <div class="sidebar-divider"></div>
+    <div class="sidebar-section">External</div>
+    <div class="agent-item" onclick="selectAgent(4,this)">
+      <div class="agent-avatar status-running" style="background:rgba(255,107,107,.1)">🏪</div>
+      <div class="agent-info">
+        <div class="agent-name">Vendor Agent A</div>
+        <div class="agent-intent" id="si-4">Accepting bids</div>
+      </div>
+      <div class="agent-rep">74</div>
+    </div>
+    <div class="agent-item" onclick="selectAgent(5,this)">
+      <div class="agent-avatar status-running" style="background:rgba(255,107,107,.1)">🏪</div>
+      <div class="agent-info">
+        <div class="agent-name">Vendor Agent B</div>
+        <div class="agent-intent" id="si-5">Countered: $9.00</div>
+      </div>
+      <div class="agent-rep">81</div>
+    </div>
+    <div class="sidebar-divider"></div>
+    <div class="sidebar-section">Network</div>
+    <div style="padding:10px 16px;font-size:10px;font-family:var(--font-mono);color:var(--text3)">
+      <div style="display:flex;justify-content:space-between;margin-bottom:6px"><span>Peers</span><span style="color:var(--green)">6 connected</span></div>
+      <div style="display:flex;justify-content:space-between;margin-bottom:6px"><span>Topic</span><span style="color:var(--text2)">agentmesh/tasks</span></div>
+      <div style="display:flex;justify-content:space-between;margin-bottom:6px"><span>Latency</span><span style="color:var(--teal)">42ms</span></div>
+      <div style="display:flex;justify-content:space-between"><span>Protocol</span><span style="color:var(--purple2)">gossipsub/1.1</span></div>
+    </div>
+    <div class="sidebar-divider"></div>
+    <div style="padding:10px 16px;font-size:10px;font-family:var(--font-mono);color:var(--text3)">
+      <div style="display:flex;justify-content:space-between;margin-bottom:6px"><span>IPFS CID</span><span style="color:var(--purple2)">bafyb…k3qr</span></div>
+      <div style="display:flex;justify-content:space-between"><span>Memory</span><span style="color:var(--teal)">✓ Synced</span></div>
+    </div>
+  </aside>
+
+  <!-- MAIN CONTENT -->
+  <main class="main">
+    <!-- OVERVIEW PANEL -->
+    <div class="panel active" id="panel-overview">
+      <div class="main-header" style="padding:24px 28px 0">
+        <div class="main-title">Network Overview</div>
+        <div class="main-subtitle">Real-time agent coordination dashboard · Ethereum Sepolia testnet</div>
+      </div>
+
+      <div style="padding:20px 28px">
+        <!-- DEMO TRIGGER -->
+        <div class="demo-banner">
+          <div class="demo-icon">🚀</div>
+          <div class="demo-text">
+            <div class="demo-title">Run Live Demo — Subscription Renegotiation</div>
+            <div class="demo-desc">Orchestrator discovers cheaper Slack Pro vendor via ERC-8004, negotiates 32% discount, settles via x402 USDC</div>
+            <div class="progress-bar"><div class="progress-fill" id="demoProg"></div></div>
+          </div>
+          <button class="demo-btn" id="demoBtn" onclick="runDemo()">▶ RUN DEMO</button>
+        </div>
+
+        <!-- METRICS -->
+        <div class="metrics-grid">
+          <div class="metric-card purple">
+            <div class="metric-label">Active Agents</div>
+            <div class="metric-value" id="m-agents">5</div>
+            <div class="metric-delta delta-pos">↑ 2 this session</div>
+          </div>
+          <div class="metric-card teal">
+            <div class="metric-label">USDC Saved</div>
+            <div class="metric-value" id="m-saved">$0</div>
+            <div class="metric-delta delta-pos" id="m-saved-d">+$0 today</div>
+          </div>
+          <div class="metric-card amber">
+            <div class="metric-label">Tasks Completed</div>
+            <div class="metric-value" id="m-tasks">14</div>
+            <div class="metric-delta delta-pos">↑ 3 this hour</div>
+          </div>
+          <div class="metric-card green">
+            <div class="metric-label">Decisions Proved</div>
+            <div class="metric-value" id="m-proofs">14</div>
+            <div class="metric-delta" style="color:var(--text3)">100% attested</div>
+          </div>
+        </div>
+
+        <!-- AGENT CARDS GRID -->
+        <div class="section-header">
+          <div class="section-title">Agent Fleet</div>
+          <div class="section-badge badge-active">5 ONLINE</div>
+        </div>
+        <div class="agents-grid">
+          <div class="agent-card-full acf-orch selected" onclick="selectAgentCard(this,0)">
+            <div class="acf-header">
+              <div class="acf-avatar" style="background:rgba(124,106,255,.15)">🤖</div>
+              <div><div class="acf-name">Orchestrator</div><div class="acf-type">Personal AI · ERC-8004 #001</div></div>
+              <div class="acf-status"><span class="status-dot sd-green"></span><span style="color:var(--green)">running</span></div>
+            </div>
+            <div class="acf-stats">
+              <div class="acf-stat"><div class="acf-stat-val" style="color:var(--purple2)">98</div><div class="acf-stat-key">Rep</div></div>
+              <div class="acf-stat"><div class="acf-stat-val">14</div><div class="acf-stat-key">Tasks</div></div>
+              <div class="acf-stat"><div class="acf-stat-val" style="color:var(--green)">100%</div><div class="acf-stat-key">Success</div></div>
+            </div>
+            <div class="acf-intent orch" id="ci-0">Monitoring subscriptions — next check in 12h</div>
+          </div>
+          <div class="agent-card-full acf-data" onclick="selectAgentCard(this,1)">
+            <div class="acf-header">
+              <div class="acf-avatar" style="background:rgba(0,212,170,.1)">📡</div>
+              <div><div class="acf-name">Data Agent</div><div class="acf-type">Sensor/API · ERC-8004 #002</div></div>
+              <div class="acf-status"><span class="status-dot sd-green"></span><span style="color:var(--green)">running</span></div>
+            </div>
+            <div class="acf-stats">
+              <div class="acf-stat"><div class="acf-stat-val" style="color:var(--teal)">87</div><div class="acf-stat-key">Rep</div></div>
+              <div class="acf-stat"><div class="acf-stat-val">31</div><div class="acf-stat-key">Tasks</div></div>
+              <div class="acf-stat"><div class="acf-stat-val" style="color:var(--green)">97%</div><div class="acf-stat-key">Success</div></div>
+            </div>
+            <div class="acf-intent data" id="ci-1">Idle — last fetch 2m ago</div>
+          </div>
+          <div class="agent-card-full acf-compute" onclick="selectAgentCard(this,2)">
+            <div class="acf-header">
+              <div class="acf-avatar" style="background:rgba(255,179,71,.1)">🧮</div>
+              <div><div class="acf-name">Compute Agent</div><div class="acf-type">Inference · ERC-8004 #003</div></div>
+              <div class="acf-status"><span class="status-dot sd-amber"></span><span style="color:var(--amber)">thinking</span></div>
+            </div>
+            <div class="acf-stats">
+              <div class="acf-stat"><div class="acf-stat-val" style="color:var(--amber)">92</div><div class="acf-stat-key">Rep</div></div>
+              <div class="acf-stat"><div class="acf-stat-val">28</div><div class="acf-stat-key">Tasks</div></div>
+              <div class="acf-stat"><div class="acf-stat-val" style="color:var(--green)">98%</div><div class="acf-stat-key">Success</div></div>
+            </div>
+            <div class="acf-intent compute" id="ci-2">Analyzing vendor bids — scoring matrix</div>
+          </div>
+          <div class="agent-card-full acf-exec" onclick="selectAgentCard(this,3)">
+            <div class="acf-header">
+              <div class="acf-avatar" style="background:rgba(56,189,248,.1)">⚡</div>
+              <div><div class="acf-name">Executor Agent</div><div class="acf-type">Transaction · ERC-8004 #004</div></div>
+              <div class="acf-status"><span class="status-dot sd-blue"></span><span style="color:var(--blue)">waiting</span></div>
+            </div>
+            <div class="acf-stats">
+              <div class="acf-stat"><div class="acf-stat-val" style="color:var(--blue)">95</div><div class="acf-stat-key">Rep</div></div>
+              <div class="acf-stat"><div class="acf-stat-val">19</div><div class="acf-stat-key">Tasks</div></div>
+              <div class="acf-stat"><div class="acf-stat-val" style="color:var(--green)">100%</div><div class="acf-stat-key">Success</div></div>
+            </div>
+            <div class="acf-intent exec" id="ci-3">Awaiting DecisionProof + human approval</div>
+          </div>
+        </div>
+
+        <!-- INTENT FEED + SWARM -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+          <div>
+            <div class="section-header"><div class="section-title">Intent Feed</div><div class="section-badge badge-active">LIVE</div></div>
+            <div class="intent-feed" id="intentFeed"></div>
+          </div>
+          <div>
+            <div class="section-header"><div class="section-title">Agent Swarm Map</div></div>
+            <div class="swarm-map" id="swarmMapContainer">
+              <canvas id="swarmCanvas"></canvas>
+            </div>
+            <div class="swarm-legend" style="margin-top:8px">
+              <div class="legend-item"><span class="legend-dot" style="background:var(--purple)"></span>Orchestrator</div>
+              <div class="legend-item"><span class="legend-dot" style="background:var(--teal)"></span>Data</div>
+              <div class="legend-item"><span class="legend-dot" style="background:var(--amber)"></span>Compute</div>
+              <div class="legend-item"><span class="legend-dot" style="background:var(--blue)"></span>Executor</div>
+              <div class="legend-item"><span class="legend-dot" style="background:var(--coral)"></span>Vendor</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- NEGOTIATE PANEL -->
+    <div class="panel" id="panel-negotiate">
+      <div class="main-header" style="padding:24px 28px 16px">
+        <div class="main-title">Negotiation Engine</div>
+        <div class="main-subtitle">Multi-agent bid discovery · ERC-8004 reputation weighted · x402 settlement</div>
+      </div>
+      <div style="padding:20px 28px">
+        <div class="negotiation-card">
+          <div class="neg-header">
+            <div>
+              <div class="neg-title">Slack Pro Subscription Renegotiation</div>
+              <div class="neg-meta">Task #TX-2847 · Started 3m 14s ago · Autonomy: Ask >$10</div>
+            </div>
+            <div class="section-badge badge-active" id="negStatus">IN PROGRESS</div>
+          </div>
+          <div class="neg-timeline">
+            <div class="neg-step done">
+              <div class="neg-step-content">
+                <div class="neg-step-label">DataAgent fetched current pricing</div>
+                <div class="neg-step-detail">Slack Pro: $12.50/mo · 5 seats · fetched via API</div>
+              </div>
+              <div class="neg-step-time">00:12</div>
+            </div>
+            <div class="neg-step done">
+              <div class="neg-step-content">
+                <div class="neg-step-label">ERC-8004 registry query — vendor discovery</div>
+                <div class="neg-step-detail">Found 3 agents with capability: subscription_pricing</div>
+              </div>
+              <div class="neg-step-time">00:24</div>
+            </div>
+            <div class="neg-step done">
+              <div class="neg-step-content">
+                <div class="neg-step-label">Bid round 1 — initial offers</div>
+                <div class="neg-step-detail">Vendor A: $10.00 · Vendor B: $9.50 · Vendor C: $11.00</div>
+              </div>
+              <div class="neg-step-time">01:08</div>
+            </div>
+            <div class="neg-step done">
+              <div class="neg-step-content">
+                <div class="neg-step-label">ComputeAgent scored bids — Vendor B selected</div>
+                <div class="neg-step-detail">Score: rep×0.4 + price×0.4 + history×0.2 = 0.87</div>
+              </div>
+              <div class="neg-step-time">01:45</div>
+            </div>
+            <div class="neg-step active">
+              <div class="neg-step-content">
+                <div class="neg-step-label">Round 2 counter-offer in progress</div>
+                <div class="neg-step-detail">Orchestrator offered $8.00 · Vendor B replied $8.50 · Finalizing…</div>
+              </div>
+              <div class="neg-step-time">02:31</div>
+            </div>
+            <div class="neg-step pending">
+              <div class="neg-step-content">
+                <div class="neg-step-label">DecisionProof generation</div>
+                <div class="neg-step-detail">ZK hash chain — input/output attestation</div>
+              </div>
+              <div class="neg-step-time">—</div>
+            </div>
+            <div class="neg-step pending">
+              <div class="neg-step-content">
+                <div class="neg-step-label">Human approval + x402 escrow funding</div>
+                <div class="neg-step-detail">Requires user consent · USDC TaskEscrow.sol</div>
+              </div>
+              <div class="neg-step-time">—</div>
+            </div>
+          </div>
+          <div class="price-comparison">
+            <div class="price-box old"><div class="price-label">Current price</div><div class="price-value">$12.50<span style="font-size:12px">/mo</span></div></div>
+            <div class="price-box new"><div class="price-label">Negotiated</div><div class="price-value">$8.50<span style="font-size:12px">/mo</span></div></div>
+            <div class="price-saving"><div class="saving-label">Annual</div><div class="saving-amount">$48</div><div class="saving-label">saved</div></div>
+          </div>
+          <button class="approve-btn" id="approveBtn" onclick="approveNegotiation()">
+            ✓ APPROVE — Save $48/year · Fund Escrow 8.50 USDC
+          </button>
+        </div>
+
+        <!-- BID TABLE -->
+        <div class="section-header"><div class="section-title">All Vendor Bids</div></div>
+        <table class="registry-table" style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;overflow:hidden">
+          <thead><tr><th>Agent</th><th>ERC-8004 ID</th><th>Reputation</th><th>Round 1</th><th>Round 2</th><th>Score</th><th>Status</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><div style="display:flex;align-items:center;gap:8px">🏪 <span style="font-weight:600">Vendor Agent A</span></div></td>
+              <td><span class="onchain-badge">#005</span></td>
+              <td><div class="rep-mini"><div class="rep-mini-bar"><div class="rep-mini-fill" style="width:74%"></div></div><span style="font-family:var(--font-mono);font-size:10px">74</span></div></td>
+              <td style="font-family:var(--font-mono)">$10.00</td>
+              <td style="font-family:var(--font-mono)">$9.20</td>
+              <td style="font-family:var(--font-mono);color:var(--text3)">0.72</td>
+              <td><span style="font-size:9px;font-family:var(--font-mono);color:var(--text3)">ELIMINATED</span></td>
+            </tr>
+            <tr style="background:rgba(124,106,255,.04)">
+              <td><div style="display:flex;align-items:center;gap:8px">🏪 <span style="font-weight:600;color:var(--purple2)">Vendor Agent B</span></div></td>
+              <td><span class="onchain-badge">#006</span></td>
+              <td><div class="rep-mini"><div class="rep-mini-bar"><div class="rep-mini-fill" style="width:81%"></div></div><span style="font-family:var(--font-mono);font-size:10px">81</span></div></td>
+              <td style="font-family:var(--font-mono)">$9.50</td>
+              <td style="font-family:var(--font-mono);color:var(--teal)">$8.50</td>
+              <td style="font-family:var(--font-mono);color:var(--purple2);font-weight:700">0.87</td>
+              <td><span style="font-size:9px;font-family:var(--font-mono);padding:2px 6px;background:rgba(124,106,255,.15);color:var(--purple2);border-radius:3px">SELECTED</span></td>
+            </tr>
+            <tr>
+              <td><div style="display:flex;align-items:center;gap:8px">🏪 <span style="font-weight:600">Vendor Agent C</span></div></td>
+              <td><span class="onchain-badge">#007</span></td>
+              <td><div class="rep-mini"><div class="rep-mini-bar"><div class="rep-mini-fill" style="width:68%"></div></div><span style="font-family:var(--font-mono);font-size:10px">68</span></div></td>
+              <td style="font-family:var(--font-mono)">$11.00</td>
+              <td style="font-family:var(--font-mono)">$10.50</td>
+              <td style="font-family:var(--font-mono);color:var(--text3)">0.61</td>
+              <td><span style="font-size:9px;font-family:var(--font-mono);color:var(--text3)">ELIMINATED</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- REGISTRY PANEL -->
+    <div class="panel" id="panel-registry">
+      <div class="main-header" style="padding:24px 28px 16px">
+        <div class="main-title">ERC-8004 Agent Registry</div>
+        <div class="main-subtitle">On-chain identity · reputation · capability advertisement · Ethereum Sepolia</div>
+      </div>
+      <div style="padding:20px 28px">
+        <div style="display:flex;gap:10px;margin-bottom:20px">
+          <input type="text" placeholder="Search agents by capability, address, or ID…" style="flex:1;padding:10px 14px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:var(--font-mono);font-size:11px;outline:none" onfocus="this.style.borderColor='var(--purple)'" onblur="this.style.borderColor='var(--border)'">
+          <button style="padding:10px 16px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;color:var(--text2);font-family:var(--font-ui);font-size:11px;cursor:pointer">Filter</button>
+          <button onclick="showProofModal()" style="padding:10px 16px;background:rgba(124,106,255,.1);border:1px solid rgba(124,106,255,.3);border-radius:8px;color:var(--purple2);font-family:var(--font-ui);font-size:11px;cursor:pointer">🔐 Verify Proof</button>
+        </div>
+        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;overflow:hidden">
+          <table class="registry-table">
+            <thead><tr><th>Agent</th><th>ERC-8004 ID</th><th>Owner</th><th>Capabilities</th><th>Rep Score</th><th>Tasks</th><th>x402 Price</th><th>Status</th></tr></thead>
+            <tbody id="registryBody">
+              <tr onclick="showProofModal()">
+                <td><div style="display:flex;align-items:center;gap:8px">🤖<span style="font-weight:600">Orchestrator</span></div></td>
+                <td><span class="onchain-badge">#001</span></td>
+                <td style="font-family:var(--font-mono);font-size:9px;color:var(--text3)">0x1a2b…3c4d</td>
+                <td><span class="capability-chip">negotiate</span><span class="capability-chip">delegate</span><span class="capability-chip">memory</span></td>
+                <td><div class="rep-mini"><div class="rep-mini-bar"><div class="rep-mini-fill" style="width:98%"></div></div><span style="font-family:var(--font-mono);font-size:10px;color:var(--purple2)">98</span></div></td>
+                <td style="font-family:var(--font-mono)">14</td>
+                <td style="font-family:var(--font-mono);color:var(--text3)">N/A</td>
+                <td><span style="font-size:9px;font-family:var(--font-mono);padding:2px 6px;background:rgba(74,222,128,.1);color:var(--green);border-radius:3px">ACTIVE</span></td>
+              </tr>
+              <tr onclick="showProofModal()">
+                <td><div style="display:flex;align-items:center;gap:8px">📡<span style="font-weight:600">Data Agent</span></div></td>
+                <td><span class="onchain-badge">#002</span></td>
+                <td style="font-family:var(--font-mono);font-size:9px;color:var(--text3)">0x2b3c…4d5e</td>
+                <td><span class="capability-chip">fetch_pricing</span><span class="capability-chip">api_query</span></td>
+                <td><div class="rep-mini"><div class="rep-mini-bar"><div class="rep-mini-fill" style="width:87%"></div></div><span style="font-family:var(--font-mono);font-size:10px;color:var(--teal)">87</span></div></td>
+                <td style="font-family:var(--font-mono)">31</td>
+                <td style="font-family:var(--font-mono);color:var(--teal)">0.001 USDC</td>
+                <td><span style="font-size:9px;font-family:var(--font-mono);padding:2px 6px;background:rgba(74,222,128,.1);color:var(--green);border-radius:3px">ACTIVE</span></td>
+              </tr>
+              <tr onclick="showProofModal()">
+                <td><div style="display:flex;align-items:center;gap:8px">🧮<span style="font-weight:600">Compute Agent</span></div></td>
+                <td><span class="onchain-badge">#003</span></td>
+                <td style="font-family:var(--font-mono);font-size:9px;color:var(--text3)">0x3c4d…5e6f</td>
+                <td><span class="capability-chip">analyze</span><span class="capability-chip">score_vendors</span></td>
+                <td><div class="rep-mini"><div class="rep-mini-bar"><div class="rep-mini-fill" style="width:92%"></div></div><span style="font-family:var(--font-mono);font-size:10px;color:var(--amber)">92</span></div></td>
+                <td style="font-family:var(--font-mono)">28</td>
+                <td style="font-family:var(--font-mono);color:var(--teal)">0.005 USDC</td>
+                <td><span style="font-size:9px;font-family:var(--font-mono);padding:2px 6px;background:rgba(74,222,128,.1);color:var(--green);border-radius:3px">ACTIVE</span></td>
+              </tr>
+              <tr onclick="showProofModal()">
+                <td><div style="display:flex;align-items:center;gap:8px">⚡<span style="font-weight:600">Executor Agent</span></div></td>
+                <td><span class="onchain-badge">#004</span></td>
+                <td style="font-family:var(--font-mono);font-size:9px;color:var(--text3)">0x4d5e…6f7a</td>
+                <td><span class="capability-chip">sign_tx</span><span class="capability-chip">submit_payment</span></td>
+                <td><div class="rep-mini"><div class="rep-mini-bar"><div class="rep-mini-fill" style="width:95%"></div></div><span style="font-family:var(--font-mono);font-size:10px;color:var(--blue)">95</span></div></td>
+                <td style="font-family:var(--font-mono)">19</td>
+                <td style="font-family:var(--font-mono);color:var(--teal)">0.002 USDC</td>
+                <td><span style="font-size:9px;font-family:var(--font-mono);padding:2px 6px;background:rgba(56,189,248,.1);color:var(--blue);border-radius:3px">WAITING</span></td>
+              </tr>
+              <tr onclick="showProofModal()">
+                <td><div style="display:flex;align-items:center;gap:8px">🏪<span style="font-weight:600">Vendor Agent B</span></div></td>
+                <td><span class="onchain-badge">#006</span></td>
+                <td style="font-family:var(--font-mono);font-size:9px;color:var(--text3)">0x6f7a…8b9c</td>
+                <td><span class="capability-chip">subscription_pricing</span><span class="capability-chip">saas_deals</span></td>
+                <td><div class="rep-mini"><div class="rep-mini-bar"><div class="rep-mini-fill" style="width:81%"></div></div><span style="font-family:var(--font-mono);font-size:10px;color:var(--coral)">81</span></div></td>
+                <td style="font-family:var(--font-mono)">47</td>
+                <td style="font-family:var(--font-mono);color:var(--text3)">N/A</td>
+                <td><span style="font-size:9px;font-family:var(--font-mono);padding:2px 6px;background:rgba(74,222,128,.1);color:var(--green);border-radius:3px">ACTIVE</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- AUDIT PANEL -->
+    <div class="panel" id="panel-audit">
+      <div class="main-header" style="padding:24px 28px 16px">
+        <div class="main-title">Audit Trail</div>
+        <div class="main-subtitle">ZK-attested decision chain · IPFS content-addressed · AuditLogger.sol anchored</div>
+      </div>
+      <div style="padding:20px 28px">
+        <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
+          <button style="padding:6px 12px;background:rgba(124,106,255,.15);border:1px solid rgba(124,106,255,.3);border-radius:6px;color:var(--purple2);font-family:var(--font-mono);font-size:10px;cursor:pointer">All</button>
+          <button style="padding:6px 12px;background:var(--bg2);border:1px solid var(--border);border-radius:6px;color:var(--text3);font-family:var(--font-mono);font-size:10px;cursor:pointer">Decisions</button>
+          <button style="padding:6px 12px;background:var(--bg2);border:1px solid var(--border);border-radius:6px;color:var(--text3);font-family:var(--font-mono);font-size:10px;cursor:pointer">Payments</button>
+          <button style="padding:6px 12px;background:var(--bg2);border:1px solid var(--border);border-radius:6px;color:var(--text3);font-family:var(--font-mono);font-size:10px;cursor:pointer">Negotiation</button>
+          <button style="padding:6px 12px;background:var(--bg2);border:1px solid var(--border);border-radius:6px;color:var(--text3);font-family:var(--font-mono);font-size:10px;cursor:pointer">Human</button>
+        </div>
+        <div id="auditList">
+          <div class="audit-entry" onclick="showProofModal()">
+            <div class="audit-icon" style="background:rgba(124,106,255,.15)">🤖</div>
+            <div class="audit-content">
+              <div class="audit-action">Orchestrator initiated subscription task #TX-2847</div>
+              <div class="audit-detail">Input: {subscription: "Slack Pro", seats: 5, budget: 10.00} → DecisionProof generated</div>
+              <div class="audit-cid">📌 bafybeihsl7fmq3gk5tzjnq2r7p4d6vwxy1mopqrstuvwxyz2847 <span style="color:var(--text3)">· IPFS</span></div>
+            </div>
+            <div class="audit-time">3m ago</div>
+          </div>
+          <div class="audit-entry" onclick="showProofModal()">
+            <div class="audit-icon" style="background:rgba(0,212,170,.1)">📡</div>
+            <div class="audit-content">
+              <div class="audit-action">DataAgent fetched pricing data — Slack API</div>
+              <div class="audit-detail">Output: {price: 12.50, currency: USD, plan: Pro} · x402 paid: 0.001 USDC</div>
+              <div class="audit-cid">📌 bafybeigh9r2p7slm4nq5tz6vw8xyz1abc2def3ghi4jkl5mno6pqr7stu8 <span style="color:var(--text3)">· IPFS</span></div>
+            </div>
+            <div class="audit-time">2m 48s ago</div>
+          </div>
+          <div class="audit-entry" onclick="showProofModal()">
+            <div class="audit-icon" style="background:rgba(255,179,71,.1)">🧮</div>
+            <div class="audit-content">
+              <div class="audit-action">ComputeAgent scored vendor bids — Vendor B selected</div>
+              <div class="audit-detail">Scoring matrix: rep×0.4 + price×0.4 + history×0.2 · Winner: 0.87 score</div>
+              <div class="audit-cid">📌 bafybeicmn9o3q8rls5tu7vx9yzabc2def4ghi6jkl8mno0pqr2stu4vwx6 <span style="color:var(--text3)">· IPFS</span></div>
+            </div>
+            <div class="audit-time">1m 19s ago</div>
+          </div>
+          <div class="audit-entry" onclick="showProofModal()" style="border-color:rgba(74,222,128,.2)">
+            <div class="audit-icon" style="background:rgba(74,222,128,.1)">👤</div>
+            <div class="audit-content">
+              <div class="audit-action" style="color:var(--green)">Human approval requested — $48/year savings</div>
+              <div class="audit-detail">Autonomy threshold exceeded ($8.50 > policy:ask>$10 — actually under). Awaiting consent.</div>
+              <div class="audit-cid">📌 Pending IPFS anchor after approval <span style="color:var(--amber)">· PENDING</span></div>
+            </div>
+            <div class="audit-time">41s ago</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- PAYMENTS PANEL -->
+    <div class="panel" id="panel-payments">
+      <div class="main-header" style="padding:24px 28px 16px">
+        <div class="main-title">x402 Payment Rails</div>
+        <div class="main-subtitle">USDC micropayments · TaskEscrow.sol · Ethereum Sepolia · Per-call settlement</div>
+      </div>
+      <div style="padding:20px 28px">
+        <div class="metrics-grid" style="grid-template-columns:repeat(3,1fr)">
+          <div class="metric-card teal">
+            <div class="metric-label">Total Spent (session)</div>
+            <div class="metric-value" style="font-size:20px" id="totalSpent">0.008 USDC</div>
+            <div class="metric-delta delta-pos">Agent service fees</div>
+          </div>
+          <div class="metric-card green">
+            <div class="metric-label">In Escrow</div>
+            <div class="metric-value" style="font-size:20px">0.00 USDC</div>
+            <div class="metric-delta" style="color:var(--text3)">Awaiting approval</div>
+          </div>
+          <div class="metric-card amber">
+            <div class="metric-label">Total Saved</div>
+            <div class="metric-value" style="font-size:20px" id="totalSaved2">$0</div>
+            <div class="metric-delta delta-pos">From negotiations</div>
+          </div>
+        </div>
+        <div class="section-header"><div class="section-title">Transaction History</div></div>
+        <div class="payment-flow">
+          <div class="payment-step">
+            <div class="pay-icon" style="background:rgba(56,189,248,.1)">💸</div>
+            <div class="pay-info">
+              <div class="pay-title">DataAgent — API fetch fee</div>
+              <div class="pay-sub">x402 · Task #TX-2847 · 0x2b3c…4d5e</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+              <div class="pay-amount debit">−0.001 USDC</div>
+              <div class="pay-status ps-confirmed">CONFIRMED</div>
+            </div>
+          </div>
+          <div class="payment-step">
+            <div class="pay-icon" style="background:rgba(255,179,71,.1)">🧮</div>
+            <div class="pay-info">
+              <div class="pay-title">ComputeAgent — bid analysis fee</div>
+              <div class="pay-sub">x402 · Task #TX-2847 · 0x3c4d…5e6f</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+              <div class="pay-amount debit">−0.005 USDC</div>
+              <div class="pay-status ps-confirmed">CONFIRMED</div>
+            </div>
+          </div>
+          <div class="payment-step">
+            <div class="pay-icon" style="background:rgba(56,189,248,.1)">⚡</div>
+            <div class="pay-info">
+              <div class="pay-title">ExecutorAgent — tx submission fee</div>
+              <div class="pay-sub">x402 · Task #TX-2847 · 0x4d5e…6f7a</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+              <div class="pay-amount debit">−0.002 USDC</div>
+              <div class="pay-status ps-pending">PENDING</div>
+            </div>
+          </div>
+          <div class="payment-step">
+            <div class="pay-icon" style="background:rgba(0,212,170,.1)">🔒</div>
+            <div class="pay-info">
+              <div class="pay-title">TaskEscrow — Vendor Agent B settlement</div>
+              <div class="pay-sub">TaskEscrow.sol · Task #TX-2847 · Awaiting human approval</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+              <div class="pay-amount locked">8.50 USDC</div>
+              <div class="pay-status ps-locked">AWAITING</div>
+            </div>
+          </div>
+        </div>
+        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px">
+          <div class="rp-title">TaskEscrow.sol — Current Task State</div>
+          <div style="font-family:var(--font-mono);font-size:10px;color:var(--text2);line-height:2">
+            <div style="display:flex;justify-content:space-between"><span style="color:var(--text3)">taskId</span><span>#TX-2847</span></div>
+            <div style="display:flex;justify-content:space-between"><span style="color:var(--text3)">status</span><span style="color:var(--amber)">Funded → Accepted</span></div>
+            <div style="display:flex;justify-content:space-between"><span style="color:var(--text3)">requester</span><span>0x1a2b…3c4d</span></div>
+            <div style="display:flex;justify-content:space-between"><span style="color:var(--text3)">executor</span><span>0x6f7a…8b9c</span></div>
+            <div style="display:flex;justify-content:space-between"><span style="color:var(--text3)">amount</span><span style="color:var(--teal)">8.50 USDC</span></div>
+            <div style="display:flex;justify-content:space-between"><span style="color:var(--text3)">token</span><span>0x036C…F7e (USDC)</span></div>
+            <div style="display:flex;justify-content:space-between"><span style="color:var(--text3)">requirementsCID</span><span style="color:var(--purple2)">bafybei…k3qr</span></div>
+            <div style="display:flex;justify-content:space-between"><span style="color:var(--text3)">deadline</span><span>+72h</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- MEMORY PANEL -->
+    <div class="panel" id="panel-memory">
+      <div class="main-header" style="padding:24px 28px 16px">
+        <div class="main-title">Portable Agent Memory</div>
+        <div class="main-subtitle">IPFS-backed · user-owned · content-addressed CIDs · Filecoin persistence</div>
+      </div>
+      <div style="padding:20px 28px">
+        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:16px">
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
+            <div style="font-size:24px">🧠</div>
+            <div>
+              <div style="font-size:14px;font-weight:700">Orchestrator Memory Snapshot</div>
+              <div style="font-size:10px;color:var(--text3);font-family:var(--font-mono)">CID: bafybeihsl7fmq3gk5tzjnq2r7p4d6vwxy1mopqrst · Updated: just now</div>
+            </div>
+            <div style="margin-left:auto;display:flex;gap:8px">
+              <span style="font-size:9px;font-family:var(--font-mono);padding:3px 8px;background:rgba(74,222,128,.1);border:1px solid rgba(74,222,128,.2);border-radius:4px;color:var(--green)">✓ SYNCED</span>
+              <span style="font-size:9px;font-family:var(--font-mono);padding:3px 8px;background:rgba(56,189,248,.1);border:1px solid rgba(56,189,248,.2);border-radius:4px;color:var(--blue)">FILECOIN</span>
+            </div>
+          </div>
+          <div style="background:var(--bg);border-radius:8px;padding:14px;font-family:var(--font-mono);font-size:10px;color:var(--text2);line-height:1.9;border:1px solid var(--border)">
+            <div style="color:var(--text3)">// memory.json — agentId: orch-001</div>
+            <div><span style="color:var(--purple2)">"userPreferences"</span>: {</div>
+            <div style="padding-left:16px"><span style="color:var(--teal)">"autonomyLevel"</span>: <span style="color:var(--amber)">"ask_above_10_usd"</span>,</div>
+            <div style="padding-left:16px"><span style="color:var(--teal)">"preferredCurrency"</span>: <span style="color:var(--amber)">"USDC"</span>,</div>
+            <div style="padding-left:16px"><span style="color:var(--teal)">"maxMonthlyBudget"</span>: <span style="color:var(--green)">200</span></div>
+            <div>},</div>
+            <div><span style="color:var(--purple2)">"knownVendors"</span>: [<span style="color:var(--coral)">"#005"</span>, <span style="color:var(--coral)">"#006"</span>, <span style="color:var(--coral)">"#007"</span>],</div>
+            <div><span style="color:var(--purple2)">"pastNegotiations"</span>: [</div>
+            <div style="padding-left:16px">{ taskId: <span style="color:var(--amber)">"TX-2801"</span>, saved: <span style="color:var(--green)">24.00</span>, vendor: <span style="color:var(--coral)">"#006"</span> },</div>
+            <div style="padding-left:16px">{ taskId: <span style="color:var(--amber)">"TX-2847"</span>, saved: <span style="color:var(--green)">48.00</span>, vendor: <span style="color:var(--coral)">"#006"</span>, status: <span style="color:var(--amber)">"pending"</span> }</div>
+            <div>],</div>
+            <div><span style="color:var(--purple2)">"totalSaved"</span>: <span style="color:var(--green)">24.00</span>,</div>
+            <div><span style="color:var(--purple2)">"context"</span>: { <span style="color:var(--teal)">"lastTask"</span>: <span style="color:var(--amber)">"TX-2847"</span>, <span style="color:var(--teal)">"session"</span>: <span style="color:var(--amber)">"sess-0419"</span> }</div>
+          </div>
+        </div>
+        <div class="section-header"><div class="section-title">Memory Version History</div></div>
+        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;overflow:hidden">
+          <table class="registry-table">
+            <thead><tr><th>Version</th><th>IPFS CID</th><th>Changes</th><th>Timestamp</th><th>Size</th></tr></thead>
+            <tbody>
+              <tr><td style="font-family:var(--font-mono);color:var(--purple2)">v14</td><td style="font-family:var(--font-mono);font-size:9px;color:var(--text3)">bafybeihsl7…1mop</td><td style="font-size:10px">TX-2847 added · budget updated</td><td style="font-family:var(--font-mono);font-size:10px;color:var(--text3)">just now</td><td style="font-family:var(--font-mono);font-size:10px">2.1KB</td></tr>
+              <tr><td style="font-family:var(--font-mono);color:var(--text2)">v13</td><td style="font-family:var(--font-mono);font-size:9px;color:var(--text3)">bafybeigh9r2…abc2</td><td style="font-size:10px">Vendor B flagged trusted</td><td style="font-family:var(--font-mono);font-size:10px;color:var(--text3)">2h ago</td><td style="font-family:var(--font-mono);font-size:10px">1.9KB</td></tr>
+              <tr><td style="font-family:var(--font-mono);color:var(--text2)">v12</td><td style="font-family:var(--font-mono);font-size:9px;color:var(--text3)">bafybeicmn9o3…def4</td><td style="font-size:10px">TX-2801 completed · $24 saved</td><td style="font-family:var(--font-mono);font-size:10px;color:var(--text3)">1d ago</td><td style="font-family:var(--font-mono);font-size:10px">1.7KB</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- RIGHT PANEL -->
+  <aside class="rightpanel">
+    <!-- AGENT DETAIL -->
+    <div class="agent-detail" id="agentDetail">
+      <div class="agent-detail-header">
+        <div class="agent-detail-avatar" style="background:rgba(124,106,255,.15)" id="dd-avatar">🤖</div>
+        <div>
+          <div class="agent-detail-name" id="dd-name">Orchestrator</div>
+          <div class="agent-detail-id" id="dd-id">ERC-8004 #001 · 0x1a2b…3c4d</div>
+        </div>
+      </div>
+      <div class="detail-section">
+        <div class="detail-section-title">Reputation</div>
+        <div class="stat-row"><span class="stat-label">Score</span><span class="stat-value" style="color:var(--purple2)" id="dd-rep">98 / 100</span></div>
+        <div class="rep-bar"><div class="rep-fill" id="dd-repbar" style="width:98%"></div></div>
+        <div class="stat-row"><span class="stat-label">Tasks</span><span class="stat-value" id="dd-tasks">14 completed</span></div>
+        <div class="stat-row"><span class="stat-label">Success rate</span><span class="stat-value" style="color:var(--green)" id="dd-success">100%</span></div>
+      </div>
+      <div class="detail-section">
+        <div class="detail-section-title">Capabilities</div>
+        <div id="dd-caps">
+          <span class="capability-chip">negotiate</span>
+          <span class="capability-chip">delegate</span>
+          <span class="capability-chip">memory</span>
+          <span class="capability-chip">mcp</span>
+          <span class="capability-chip">a2a</span>
+        </div>
+      </div>
+      <div class="detail-section">
+        <div class="detail-section-title">Current State</div>
+        <div class="stat-row"><span class="stat-label">Status</span><span class="stat-value" style="color:var(--green)" id="dd-status">Running</span></div>
+        <div class="stat-row"><span class="stat-label">Intent</span><span class="stat-value" id="dd-intent" style="font-size:10px;text-align:right;max-width:160px">Monitoring subscriptions</span></div>
+        <div class="stat-row"><span class="stat-label">Memory CID</span><span class="stat-value" style="color:var(--purple2);font-size:9px">bafybei…1mop</span></div>
+      </div>
+      <div class="detail-section">
+        <div class="detail-section-title">x402 Pricing</div>
+        <div class="stat-row"><span class="stat-label">Price / call</span><span class="stat-value" id="dd-price">N/A</span></div>
+        <div class="stat-row"><span class="stat-label">Token</span><span class="stat-value">USDC (Base)</span></div>
+      </div>
+      <button onclick="showProofModal()" style="display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:10px;background:rgba(124,106,255,.08);border:1px solid rgba(124,106,255,.25);border-radius:8px;color:var(--purple2);font-family:var(--font-ui);font-size:11px;cursor:pointer;transition:all .2s" onmouseover="this.style.background='rgba(124,106,255,.15)'" onmouseout="this.style.background='rgba(124,106,255,.08)'">
+        🔐 View DecisionProof
+      </button>
+    </div>
+
+    <div style="height:1px;background:var(--border)"></div>
+
+    <!-- AUTONOMY CONTROL -->
+    <div class="rp-section">
+      <div class="rp-title">Autonomy Control</div>
+      <div class="autonomy-levels">
+        <div class="autonomy-level" onclick="setAutonomy(this)">
+          <div class="autonomy-radio"></div>
+          <div class="autonomy-text"><div class="autonomy-name">Always ask</div><div class="autonomy-desc">Confirm every action</div></div>
+        </div>
+        <div class="autonomy-level" onclick="setAutonomy(this)">
+          <div class="autonomy-radio"></div>
+          <div class="autonomy-text"><div class="autonomy-name">Ask for payments</div><div class="autonomy-desc">Approve all USDC spends</div></div>
+        </div>
+        <div class="autonomy-level selected" onclick="setAutonomy(this)">
+          <div class="autonomy-radio"></div>
+          <div class="autonomy-text"><div class="autonomy-name">Ask above $10</div><div class="autonomy-desc">Auto-approve small tasks</div></div>
+        </div>
+        <div class="autonomy-level" onclick="setAutonomy(this)">
+          <div class="autonomy-radio"></div>
+          <div class="autonomy-text"><div class="autonomy-name">Ask above $50</div><div class="autonomy-desc">High-value only</div></div>
+        </div>
+        <div class="autonomy-level" onclick="setAutonomy(this)">
+          <div class="autonomy-radio"></div>
+          <div class="autonomy-text"><div class="autonomy-name">Fully autonomous</div><div class="autonomy-desc">Agent decides all</div></div>
+        </div>
+      </div>
+    </div>
+  </aside>
+</div>
+
+<!-- ZK PROOF MODAL -->
+<div class="modal-overlay" id="proofModal" onclick="if(event.target===this)closeModal()">
+  <div class="modal fade-in">
+    <div class="modal-title">🔐 DecisionProof Verification</div>
+    <div class="modal-sub">ZK-attested hash chain · AuditLogger.sol anchored · IPFS stored</div>
+    <div class="proof-block">
+      <div class="proof-key">Agent ID</div>
+      <div class="proof-val">ERC-8004 #003 · ComputeAgent · 0x3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f</div>
+    </div>
+    <div class="proof-block">
+      <div class="proof-key">Input Hash (sha256)</div>
+      <div class="proof-val">0x7f83b1657ff1fc53b92dc18148a1d65dfc2d4b1fa3d677284addd200126d9069</div>
+    </div>
+    <div class="proof-block">
+      <div class="proof-key">Output Hash (sha256)</div>
+      <div class="proof-val">0xa4d55ae86f3cb6a5b3a5bb6cc17e3c2e4f7d1a8b9c0e2f4a6b8d0e2f4a6b8d0</div>
+    </div>
+    <div class="proof-block">
+      <div class="proof-key">Reasoning Chain (3 steps)</div>
+      <div class="proof-val">1. Normalize bids by seat count → 2. Apply scoring matrix (rep×0.4, price×0.4, hist×0.2) → 3. Select max score: Vendor B (0.87)</div>
+    </div>
+    <div class="proof-block">
+      <div class="proof-key">Combined Proof Hash · Agent Signature</div>
+      <div class="proof-val">0xd8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9</div>
+    </div>
+    <div class="proof-block">
+      <div class="proof-key">IPFS CID · On-chain Anchor</div>
+      <div class="proof-val green">bafybeicmn9o3q8rls5tu7vx9yzabc2def4ghi6jkl8mno0pqr2stu4vwx6 · Tx: 0x9a8b7c6d…</div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:4px;flex-wrap:wrap">
+      <div style="flex:1;text-align:center;padding:10px;background:rgba(74,222,128,.08);border:1px solid rgba(74,222,128,.2);border-radius:8px;font-family:var(--font-mono);font-size:11px;color:var(--green)">✓ HASH VALID</div>
+      <div style="flex:1;text-align:center;padding:10px;background:rgba(74,222,128,.08);border:1px solid rgba(74,222,128,.2);border-radius:8px;font-family:var(--font-mono);font-size:11px;color:var(--green)">✓ SIGNATURE VALID</div>
+      <div style="flex:1;text-align:center;padding:10px;background:rgba(74,222,128,.08);border:1px solid rgba(74,222,128,.2);border-radius:8px;font-family:var(--font-mono);font-size:11px;color:var(--green)">✓ IPFS ANCHORED</div>
+    </div>
+    <button class="close-btn" onclick="closeModal()">Close</button>
+  </div>
+</div>
+
+<!-- TOAST CONTAINER -->
+<div class="toast-container" id="toastContainer"></div>
+
+<script>
+// ── STATE ──
+let isHalted=false;
+let selectedAgent=0;
+let demoRunning=false;
+let demoProgress=0;
+let demoInterval=null;
+
+const agents=[
+  {name:'Orchestrator',avatar:'🤖',id:'ERC-8004 #001 · 0x1a2b…3c4d',rep:98,tasks:14,success:'100%',status:'Running',statusColor:'var(--green)',intent:'Monitoring subscriptions — next check in 12h',caps:['negotiate','delegate','memory','mcp','a2a'],price:'N/A',repColor:'var(--purple2)'},
+  {name:'Data Agent',avatar:'📡',id:'ERC-8004 #002 · 0x2b3c…4d5e',rep:87,tasks:31,success:'97%',status:'Running',statusColor:'var(--green)',intent:'Idle — last fetch 2m ago',caps:['fetch_pricing','api_query','sensor_feed'],price:'0.001 USDC',repColor:'var(--teal)'},
+  {name:'Compute Agent',avatar:'🧮',id:'ERC-8004 #003 · 0x3c4d…5e6f',rep:92,tasks:28,success:'98%',status:'Thinking',statusColor:'var(--amber)',intent:'Analyzing vendor bids — scoring matrix',caps:['analyze','score_vendors','inference'],price:'0.005 USDC',repColor:'var(--amber)'},
+  {name:'Executor Agent',avatar:'⚡',id:'ERC-8004 #004 · 0x4d5e…6f7a',rep:95,tasks:19,success:'100%',status:'Waiting',statusColor:'var(--blue)',intent:'Awaiting DecisionProof + human approval',caps:['sign_tx','submit_payment','update_registry'],price:'0.002 USDC',repColor:'var(--blue)'},
+  {name:'Vendor Agent A',avatar:'🏪',id:'ERC-8004 #005 · 0x5e6f…7a8b',rep:74,tasks:47,success:'89%',status:'Running',statusColor:'var(--green)',intent:'Accepting bid requests',caps:['subscription_pricing','saas_deals'],price:'N/A',repColor:'var(--coral)'},
+  {name:'Vendor Agent B',avatar:'🏪',id:'ERC-8004 #006 · 0x6f7a…8b9c',rep:81,tasks:62,success:'93%',status:'Running',statusColor:'var(--green)',intent:'Countered offer: $8.50/mo',caps:['subscription_pricing','saas_deals','negotiate'],price:'N/A',repColor:'var(--coral)'},
+];
+
+// ── PANELS ──
+function showPanel(id,el){
+  document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.nav-links a').forEach(a=>a.classList.remove('active'));
+  document.getElementById('panel-'+id).classList.add('active');
+  if(el)el.classList.add('active');
+}
+
+// ── AGENT SELECTION ──
+function selectAgent(idx,el){
+  selectedAgent=idx;
+  document.querySelectorAll('.agent-item').forEach(i=>i.classList.remove('active'));
+  el.classList.add('active');
+  updateDetailPanel(idx);
+}
+function selectAgentCard(el,idx){
+  selectedAgent=idx;
+  document.querySelectorAll('.agent-card-full').forEach(c=>c.classList.remove('selected'));
+  el.classList.add('selected');
+  updateDetailPanel(idx);
+}
+function updateDetailPanel(idx){
+  const a=agents[idx];
+  document.getElementById('dd-avatar').textContent=a.avatar;
+  document.getElementById('dd-name').textContent=a.name;
+  document.getElementById('dd-id').textContent=a.id;
+  document.getElementById('dd-rep').textContent=a.rep+' / 100';
+  document.getElementById('dd-rep').style.color=a.repColor;
+  document.getElementById('dd-repbar').style.width=a.rep+'%';
+  document.getElementById('dd-tasks').textContent=a.tasks+' completed';
+  document.getElementById('dd-success').textContent=a.success;
+  document.getElementById('dd-status').textContent=a.status;
+  document.getElementById('dd-status').style.color=a.statusColor;
+  document.getElementById('dd-intent').textContent=a.intent;
+  document.getElementById('dd-price').textContent=a.price;
+  document.getElementById('dd-caps').innerHTML=a.caps.map(c=>`<span class="capability-chip">${c}</span>`).join('');
+}
+
+// ── KILL SWITCH ──
+function toggleKill(){
+  isHalted=!isHalted;
+  const btn=document.getElementById('killBtn');
+  const overlay=document.getElementById('haltedOverlay');
+  const banner=document.getElementById('haltedBanner');
+  if(isHalted){
+    btn.textContent='▶ RESUME MESH';btn.classList.add('halted');
+    overlay.classList.add('active');banner.classList.add('active');
+    toast('⛔ Kill switch activated — all agents suspended','error');
+    document.querySelectorAll('.agent-avatar').forEach(a=>{
+      a.className=a.className.replace(/status-\w+/,'status-halted');
+    });
+  }else{
+    btn.textContent='⛔ KILL SWITCH';btn.classList.remove('halted');
+    overlay.classList.remove('active');banner.classList.remove('active');
+    toast('▶ Mesh resumed — agents restarting','success');
+    restoreStatuses();
+  }
+}
+function restoreStatuses(){
+  const statuses=['status-running','status-running','status-thinking','status-waiting','status-running','status-running'];
+  document.querySelectorAll('.agent-avatar').forEach((a,i)=>{
+    if(i<statuses.length)a.className=a.className.replace(/status-\w+/,statuses[i]);
+  });
+}
+
+// ── AUTONOMY ──
+function setAutonomy(el){
+  document.querySelectorAll('.autonomy-level').forEach(l=>l.classList.remove('selected'));
+  el.classList.add('selected');
+  toast('✓ Autonomy updated — saved to IPFS memory','success');
+}
+
+// ── MODAL ──
+function showProofModal(){document.getElementById('proofModal').classList.add('open')}
+function closeModal(){document.getElementById('proofModal').classList.remove('open')}
+
+// ── TOAST ──
+function toast(msg,type='success'){
+  const c=document.getElementById('toastContainer');
+  const t=document.createElement('div');
+  t.className=`toast ${type}`;
+  const icon={success:'✓',warning:'⚠',error:'⛔'}[type]||'ℹ';
+  t.innerHTML=`<span>${icon}</span><span>${msg}</span>`;
+  c.appendChild(t);
+  setTimeout(()=>{t.style.animation='slide-out .3s ease forwards';setTimeout(()=>t.remove(),300)},3500);
+}
+
+// ── APPROVE NEGOTIATION ──
+function approveNegotiation(){
+  const btn=document.getElementById('approveBtn');
+  btn.disabled=true;
+  btn.style.opacity='.5';
+  btn.textContent='⏳ Funding escrow…';
+  toast('✓ Approval confirmed — funding escrow 8.50 USDC','success');
+  setTimeout(()=>{
+    btn.textContent='✓ ESCROW FUNDED — Vendor B settlement in progress';
+    btn.style.background='linear-gradient(135deg,var(--bg3),var(--bg2))';
+    btn.style.color='var(--green)';
+    btn.style.opacity='1';
+    document.getElementById('negStatus').textContent='COMPLETING';
+    document.getElementById('negStatus').style.background='rgba(74,222,128,.1)';
+    document.getElementById('negStatus').style.color='var(--green)';
+    document.getElementById('negStatus').style.borderColor='rgba(74,222,128,.2)';
+    document.getElementById('m-saved').textContent='$48';
+    document.getElementById('m-saved-d').textContent='+$48 today';
+    document.getElementById('totalSaved2').textContent='$48';
+    document.getElementById('m-tasks').textContent='15';
+    document.getElementById('m-proofs').textContent='15';
+    addIntentLine('orch','Escrow funded 8.50 USDC · Vendor B settlement initiated');
+    addIntentLine('executor','Submitting completeTask to TaskEscrow.sol…');
+    toast('🎉 $48/year saved — deal confirmed with Vendor B','success');
+  },2000);
+}
+
+// ── DEMO ──
+function runDemo(){
+  if(demoRunning)return;
+  demoRunning=true;
+  const btn=document.getElementById('demoBtn');
+  btn.disabled=true;btn.textContent='⏳ RUNNING…';
+  demoProgress=0;
+  const steps=[
+    ()=>{addIntentLine('orch','Initiating subscription scan — Slack Pro, 5 seats');updateSidebarIntent(0,'Scanning Slack Pro subscription…');},
+    ()=>{addIntentLine('data','Fetching current pricing via Slack API…');updateSidebarIntent(1,'Fetching Slack pricing…');},
+    ()=>{addIntentLine('data','Fetched: $12.50/mo · 5 seats · Pro plan');updateCardIntent(1,'Fetched: $12.50/mo · 5 seats','data');},
+    ()=>{addIntentLine('orch','Querying ERC-8004 registry for subscription_pricing agents');},
+    ()=>{addIntentLine('orch','Found 3 vendor agents · broadcasting bid request via A2A');},
+    ()=>{addIntentLine('vendor','Vendor A bid: $10.00/mo');addIntentLine('vendor','Vendor B bid: $9.50/mo');},
+    ()=>{addIntentLine('compute','Scoring bids: rep×0.4 + price×0.4 + history×0.2');updateSidebarIntent(2,'Scoring vendor bids…');},
+    ()=>{addIntentLine('compute','Vendor B selected: score 0.87 · initiating round 2');updateCardIntent(2,'Vendor B selected: score 0.87','compute');},
+    ()=>{addIntentLine('orch','Counter-offer to Vendor B: $8.00/mo');updateSidebarIntent(0,'Counter-offering $8.00/mo…');},
+    ()=>{addIntentLine('vendor','Vendor B counter: $8.50/mo — final offer');updateSidebarIntent(4,'Counter: $8.50/mo');},
+    ()=>{addIntentLine('compute','Generating DecisionProof — hash chain: input→reasoning→output');},
+    ()=>{addIntentLine('human','⚠ Human approval required — savings: $48/year');toast('⚠ Approval needed: Save $48/yr with Vendor B','warning');},
+    ()=>{addIntentLine('executor','DecisionProof validated · awaiting approval to fund escrow');updateSidebarIntent(3,'Awaiting approval…');},
+  ];
+  let si=0;
+  demoInterval=setInterval(()=>{
+    if(si<steps.length){steps[si]();si++;}
+    demoProgress=Math.min(100,Math.round((si/steps.length)*100));
+    document.getElementById('demoProg').style.width=demoProgress+'%';
+    if(si>=steps.length){
+      clearInterval(demoInterval);demoRunning=false;
+      btn.disabled=false;btn.textContent='▶ RUN AGAIN';
+    }
+  },900);
+}
+
+function updateSidebarIntent(idx,msg){
+  const el=document.getElementById('si-'+idx);
+  if(el)el.textContent=msg;
+}
+function updateCardIntent(idx,msg,cls){
+  const el=document.getElementById('ci-'+idx);
+  if(el){el.textContent=msg;el.className='acf-intent '+cls;}
+}
+
+// ── INTENT FEED ──
+const intentColors={orch:'tag-orch',data:'tag-data',compute:'tag-compute',executor:'tag-executor',vendor:'tag-vendor',human:'tag-human'};
+const intentLabels={orch:'ORCH',data:'DATA',compute:'COMPUTE',executor:'EXEC',vendor:'VENDOR',human:'HUMAN'};
+function addIntentLine(agent,msg){
+  const feed=document.getElementById('intentFeed');
+  const now=new Date();
+  const ts=now.getHours().toString().padStart(2,'0')+':'+now.getMinutes().toString().padStart(2,'0')+':'+now.getSeconds().toString().padStart(2,'0');
+  const line=document.createElement('div');
+  line.className='intent-line';
+  line.innerHTML=`<span class="intent-ts">${ts}</span><span class="intent-agent ${intentColors[agent]||'tag-orch'}">${intentLabels[agent]||agent.toUpperCase()}</span><span class="intent-msg">${msg}</span>`;
+  feed.appendChild(line);
+  feed.scrollTop=feed.scrollHeight;
+}
+
+// ── INITIAL FEED ──
+const initialFeed=[
+  ['orch','Agent mesh initialized · 6 peers connected via libp2p'],
+  ['data','Memory loaded from IPFS: bafybeihsl7…1mop · v14'],
+  ['orch','Subscription monitor active · next scan in 12h'],
+  ['compute','Idle · ready for analysis tasks'],
+  ['executor','Wallet synced · balance: 12.5 USDC on Ethereum Sepolia'],
+];
+initialFeed.forEach(([a,m])=>addIntentLine(a,m));
+
+// ── SWARM CANVAS ──
+(function(){
+  const canvas=document.getElementById('swarmCanvas');
+  if(!canvas)return;
+  const container=document.getElementById('swarmMapContainer');
+  function resize(){canvas.width=container.clientWidth;canvas.height=container.clientHeight-8}
+  resize();
+  const ctx=canvas.getContext('2d');
+
+  const nodes=[
+    {x:0,y:0,r:18,color:'#7c6aff',label:'Orch',pulse:0},
+    {x:0,y:0,r:12,color:'#00d4aa',label:'Data',pulse:.5},
+    {x:0,y:0,r:12,color:'#ffb347',label:'Comp',pulse:1},
+    {x:0,y:0,r:12,color:'#38bdf8',label:'Exec',pulse:1.5},
+    {x:0,y:0,r:10,color:'#ff6b6b',label:'Vend A',pulse:.8},
+    {x:0,y:0,r:10,color:'#ff9a9a',label:'Vend B',pulse:1.2},
+  ];
+  const edges=[[0,1],[0,2],[0,3],[0,4],[0,5],[1,2],[2,3],[3,4],[4,5]];
+  let t=0;
+
+  function setPositions(){
+    const w=canvas.width,h=canvas.height,cx=w/2,cy=h/2;
+    nodes[0].x=cx;nodes[0].y=cy;
+    const r=Math.min(w,h)*.36;
+    for(let i=1;i<nodes.length;i++){
+      const a=(i-1)*((Math.PI*2)/(nodes.length-1))-Math.PI/2;
+      nodes[i].x=cx+Math.cos(a)*r;
+      nodes[i].y=cy+Math.sin(a)*r;
+    }
+  }
+
+  function draw(){
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    t+=.016;
+
+    // edges
+    edges.forEach(([a,b])=>{
+      const na=nodes[a],nb=nodes[b];
+      const grad=ctx.createLinearGradient(na.x,na.y,nb.x,nb.y);
+      grad.addColorStop(0,na.color+'44');grad.addColorStop(1,nb.color+'44');
+      ctx.strokeStyle=grad;ctx.lineWidth=1;
+      ctx.beginPath();ctx.moveTo(na.x,na.y);ctx.lineTo(nb.x,nb.y);ctx.stroke();
+
+      // packet animation
+      const prog=(Math.sin(t+na.pulse)*0.5+0.5);
+      const px=na.x+(nb.x-na.x)*prog,py=na.y+(nb.y-na.y)*prog;
+      ctx.fillStyle=na.color+'cc';
+      ctx.beginPath();ctx.arc(px,py,2.5,0,Math.PI*2);ctx.fill();
+    });
+
+    // nodes
+    nodes.forEach((n,i)=>{
+      const pulse=Math.sin(t*1.5+n.pulse)*3;
+      if(isHalted){
+        ctx.fillStyle='#ff6b6b22';ctx.strokeStyle='#ff6b6b55';
+      } else {
+        ctx.fillStyle=n.color+'22';ctx.strokeStyle=n.color+'88';
+      }
+      ctx.lineWidth=1.5;
+      ctx.beginPath();ctx.arc(n.x,n.y,n.r+pulse*.3,0,Math.PI*2);ctx.fill();ctx.stroke();
+      ctx.fillStyle=isHalted?'#ff6b6b':n.color;
+      ctx.beginPath();ctx.arc(n.x,n.y,n.r*.6,0,Math.PI*2);ctx.fill();
+      ctx.fillStyle='rgba(232,237,248,.85)';ctx.font='bold 8px JetBrains Mono,monospace';
+      ctx.textAlign='center';ctx.textBaseline='middle';
+      ctx.fillText(n.label,n.x,n.y+n.r+10);
+    });
+
+    requestAnimationFrame(draw);
+  }
+
+  setPositions();draw();
+  window.addEventListener('resize',()=>{resize();setPositions();});
+})();
+
+// Boot toast
+setTimeout(()=>toast('AgentMesh initialized · 6 libp2p peers connected','success'),600);
+</script>
+</body>
+</html>

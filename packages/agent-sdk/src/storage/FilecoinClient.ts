@@ -1,39 +1,41 @@
 import { ok, err, Result } from 'neverthrow';
 import { StorageError } from '@agentmesh/shared';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
 
-// Filecoin deal client
-// Makes storage deals on Filecoin for long-term data persistence
+const execFileAsync = promisify(execFile);
+
 export class FilecoinClient {
-  private deals: Map<string, { cid: string; dealId: string; status: string }> = new Map();
+  constructor(
+    private readonly rpcUrl?: string,
+    private readonly filecoinPinCommand: string = process.env.FILECOIN_PIN_COMMAND ?? 'filecoin-pin'
+  ) {}
 
-  constructor(private readonly rpcUrl?: string) {}
-
-  // Make a Filecoin storage deal for a CID
   async makeDeal(cid: string, durationDays: number = 365): Promise<Result<string, StorageError>> {
     try {
-      // In production, use Filecoin.js or lighthouse.storage SDK
-      // const dealId = await this.filecoinClient.makeDeal(cid, { duration: durationDays * 2880 });
-
-      // Demo: simulate deal creation
-      const dealId = `deal-${Date.now()}-${cid.slice(0, 8)}`;
-      this.deals.set(cid, { cid, dealId, status: 'active' });
-      return ok(dealId);
+      const { stdout } = await execFileAsync(
+        this.filecoinPinCommand,
+        ['proofs', 'cid', cid, '--duration-days', String(durationDays)],
+        { env: process.env }
+      );
+      return ok(stdout.trim());
     } catch (error) {
       return err(new StorageError(`Failed to make Filecoin deal: ${String(error)}`));
     }
   }
 
-  // Check deal status
   async getDealStatus(cid: string): Promise<Result<string, StorageError>> {
-    const deal = this.deals.get(cid);
-    if (!deal) {
-      return err(new StorageError(`No deal found for CID: ${cid}`));
+    try {
+      const { stdout } = await execFileAsync(this.filecoinPinCommand, ['data-set', '--cid', cid], {
+        env: process.env,
+      });
+      return ok(stdout.trim());
+    } catch (error) {
+      return err(new StorageError(`Failed to inspect Filecoin deal status: ${String(error)}`));
     }
-    return ok(deal.status);
   }
 
-  // List all active deals
   listDeals(): Array<{ cid: string; dealId: string; status: string }> {
-    return Array.from(this.deals.values());
+    return [];
   }
 }

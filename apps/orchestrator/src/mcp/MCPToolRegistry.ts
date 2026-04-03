@@ -143,13 +143,14 @@ export class MCPToolRegistry {
         required: ['service'],
       },
       execute: async (params) => {
-        const mockPrices: Record<string, { price: number; plan: string; features: string[] }> = {
-          Slack: { price: 12.5, plan: 'Pro', features: ['unlimited messages', 'screen sharing'] },
-          GitHub: { price: 21, plan: 'Team', features: ['unlimited repos', 'CI/CD minutes'] },
-          Notion: { price: 16, plan: 'Plus', features: ['unlimited pages', 'collaboration'] },
-        };
         const service = params.service as string;
-        return mockPrices[service] ?? { price: 10, plan: 'Standard', features: ['basic'] };
+        const response = await fetch(service, {
+          headers: { Accept: 'application/json' },
+        });
+        if (!response.ok) {
+          throw new Error(`Subscription data request failed with ${response.status}`);
+        }
+        return response.json();
       },
     };
     this.mcp.registerTool(tool);

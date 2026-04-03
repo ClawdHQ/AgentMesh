@@ -40,7 +40,7 @@ importers:
         version: 0.4.5(bufferutil@4.1.0)(utf-8-validate@6.0.6)
       '@lit-protocol/auth-helpers':
         specifier: ^8.2.1
-        version: 8.2.1(@tanstack/query-core@5.95.2)(@types/react@18.3.28)(bufferutil@4.1.0)(immer@10.0.2)(react@18.3.1)(typescript@5.9.3)(use-sync-external-store@1.6.0(react@18.3.1))(utf-8-validate@6.0.6)(viem@2.38.3(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6)(zod@3.24.3))
+        version: 8.2.1(@tanstack/query-core@5.95.2)(@types/react@18.3.28)(bufferutil@4.1.0)(immer@10.0.2)(react@18.3.1)(typescript@5.9.3)(use-sync-external-store@1.6.0(react@18.3.1))(utf-8-validate@6.0.6)(viem@2.38.3(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6)(zod@3.25.76))
       '@lit-protocol/constants':
         specifier: ^9.0.1
         version: 9.0.1(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6)
@@ -291,6 +291,9 @@ importers:
       dotenv:
         specifier: ^16.4.5
         version: 16.6.1
+      ethers:
+        specifier: ^6.0.0
+        version: 6.16.0(bufferutil@4.1.0)(utf-8-validate@6.0.6)
       express:
         specifier: ^4.18.3
         version: 4.22.1
@@ -322,6 +325,9 @@ importers:
       '@agentmesh/shared':
         specifier: workspace:*
         version: link:../shared
+      '@lighthouse-web3/sdk':
+        specifier: ^0.4.5
+        version: 0.4.5(bufferutil@4.1.0)(utf-8-validate@6.0.6)
       ethers:
         specifier: ^6.0.0
         version: 6.16.0(bufferutil@4.1.0)(utf-8-validate@6.0.6)
@@ -8461,7 +8467,7 @@ snapshots:
       - typescript
       - utf-8-validate
 
-  '@lit-protocol/auth-helpers@8.2.1(@tanstack/query-core@5.95.2)(@types/react@18.3.28)(bufferutil@4.1.0)(immer@10.0.2)(react@18.3.1)(typescript@5.9.3)(use-sync-external-store@1.6.0(react@18.3.1))(utf-8-validate@6.0.6)(viem@2.38.3(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6)(zod@3.24.3))':
+  '@lit-protocol/auth-helpers@8.2.1(@tanstack/query-core@5.95.2)(@types/react@18.3.28)(bufferutil@4.1.0)(immer@10.0.2)(react@18.3.1)(typescript@5.9.3)(use-sync-external-store@1.6.0(react@18.3.1))(utf-8-validate@6.0.6)(viem@2.38.3(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6)(zod@3.25.76))':
     dependencies:
       '@ethersproject/contracts': 5.7.0
       '@ethersproject/providers': 5.7.0(bufferutil@4.1.0)(utf-8-validate@6.0.6)
@@ -8469,14 +8475,14 @@ snapshots:
       '@lit-protocol/access-control-conditions': 8.0.2(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6)
       '@lit-protocol/access-control-conditions-schemas': 8.0.2(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6)
       '@lit-protocol/constants': 9.0.1(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6)
-      '@lit-protocol/contracts': 0.9.1(typescript@5.9.3)(viem@2.38.3(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6)(zod@3.24.3))
+      '@lit-protocol/contracts': 0.9.1(typescript@5.9.3)(viem@2.38.3(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6)(zod@3.25.76))
       '@lit-protocol/logger': 8.0.2
       '@lit-protocol/schemas': 8.0.3(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6)
       '@lit-protocol/types': 8.0.4(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6)
       '@openagenda/verror': 3.1.4
       '@t3-oss/env-core': 0.13.8(typescript@5.9.3)(zod@3.24.3)
       '@typechain/ethers-v6': 0.5.1(ethers@5.7.2(bufferutil@4.1.0)(utf-8-validate@6.0.6))(typechain@8.3.2(typescript@5.9.3))(typescript@5.9.3)
-      '@wagmi/core': 2.22.1(@tanstack/query-core@5.95.2)(@types/react@18.3.28)(immer@10.0.2)(react@18.3.1)(typescript@5.9.3)(use-sync-external-store@1.6.0(react@18.3.1))(viem@2.38.3(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6)(zod@3.24.3))
+      '@wagmi/core': 2.22.1(@tanstack/query-core@5.95.2)(@types/react@18.3.28)(immer@10.0.2)(react@18.3.1)(typescript@5.9.3)(use-sync-external-store@1.6.0(react@18.3.1))(viem@2.38.3(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6)(zod@3.25.76))
       ethers: 5.7.2(bufferutil@4.1.0)(utf-8-validate@6.0.6)
       pino: 9.6.0
       siwe: 2.3.2(ethers@5.7.2(bufferutil@4.1.0)(utf-8-validate@6.0.6))
@@ -8592,6 +8598,11 @@ snapshots:
     dependencies:
       typescript: 5.9.3
       viem: 2.38.3(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6)(zod@3.24.3)
+
+  '@lit-protocol/contracts@0.9.1(typescript@5.9.3)(viem@2.38.3(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6)(zod@3.25.76))':
+    dependencies:
+      typescript: 5.9.3
+      viem: 2.38.3(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6)(zod@3.25.76)
 
   '@lit-protocol/core@7.4.0(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6)':
     dependencies:
@@ -8964,7 +8975,7 @@ snapshots:
       siwe: 2.3.2(ethers@5.7.2(bufferutil@4.1.0)(utf-8-validate@6.0.6))
       tslib: 2.8.1
       typechain: 8.3.2(typescript@5.9.3)
-      viem: 2.38.3(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6)(zod@3.25.76)
+      viem: 2.38.3(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6)(zod@3.24.3)
       zod: 3.24.3
       zod-validation-error: 3.4.0(zod@3.24.3)
     transitivePeerDependencies:
@@ -10149,7 +10160,7 @@ snapshots:
 
   '@scure/bip32@1.7.0':
     dependencies:
-      '@noble/curves': 1.9.1
+      '@noble/curves': 1.9.7
       '@noble/hashes': 1.8.0
       '@scure/base': 1.2.6
 
@@ -11280,7 +11291,7 @@ snapshots:
       - react
       - use-sync-external-store
 
-  '@wagmi/core@2.22.1(@tanstack/query-core@5.95.2)(@types/react@18.3.28)(immer@10.0.2)(react@18.3.1)(typescript@5.9.3)(use-sync-external-store@1.6.0(react@18.3.1))(viem@2.38.3(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6)(zod@3.24.3))':
+  '@wagmi/core@2.22.1(@tanstack/query-core@5.95.2)(@types/react@18.3.28)(immer@10.0.2)(react@18.3.1)(typescript@5.9.3)(use-sync-external-store@1.6.0(react@18.3.1))(viem@2.38.3(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6)(zod@3.25.76))':
     dependencies:
       eventemitter3: 5.0.1
       mipd: 0.0.7(typescript@5.9.3)

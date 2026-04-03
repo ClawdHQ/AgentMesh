@@ -1230,6 +1230,56 @@ button {
   font-size: 10px;
 }
 
+.service-stack {
+  display: grid;
+  gap: 10px;
+}
+
+.service-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.service-name {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.service-meta,
+.trace-note,
+.compact-empty {
+  color: var(--text2);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+.trace-note,
+.compact-empty {
+  margin-top: 6px;
+}
+
+.manifest-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.link-inline {
+  color: var(--blue);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-decoration: none;
+}
+
+.link-inline:hover {
+  color: #82d8ff;
+  text-decoration: underline;
+}
+
 @media (max-width: 1180px) {
   .app {
     grid-template-columns: 220px minmax(0, 1fr);
@@ -1286,7 +1336,8 @@ button {
 
   .neg-header,
   .section-header,
-  .memory-header {
+  .memory-header,
+  .service-row {
     flex-direction: column;
     align-items: flex-start;
   }

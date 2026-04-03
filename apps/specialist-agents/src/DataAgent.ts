@@ -1,56 +1,30 @@
 import pino from 'pino';
-import { TOPIC_INTENTS } from '@agentmesh/shared';
-import { BaseAgent, LibP2PClient, IPFSStorage } from '@agentmesh/agent-sdk';
-import type { AgentTask, TaskResult, AgentCapability } from '@agentmesh/agent-sdk';
-
-interface SubscriptionInfo {
-  vendor: string;
-  plan: string;
-  price: number;
-  currency: string;
-  billingCycle: string;
-  features: string[];
-  usersIncluded: number;
-}
+import { BaseAgent } from '@agentmesh/agent-sdk';
+import type { AgentCapability, AgentTask, TaskResult } from '@agentmesh/agent-sdk';
+import { ethers } from 'ethers';
 
 export class DataAgent extends BaseAgent {
   private dataLogger = pino({ level: 'info', name: 'DataAgent' });
-  private libp2p: LibP2PClient;
-  private ipfs: IPFSStorage;
+  private provider: ethers.JsonRpcProvider;
 
   constructor(config: ConstructorParameters<typeof BaseAgent>[0]) {
     super(config);
-    this.libp2p = new LibP2PClient(
-      config.libp2pPort,
-      config.bootstrapPeers,
-      this.identity.agentId
-    );
-    this.ipfs = new IPFSStorage();
+    this.provider = new ethers.JsonRpcProvider(config.rpcUrl);
   }
 
   getCapabilities(): AgentCapability[] {
     return [
       {
-        name: 'fetch_subscription_data',
-        description: 'Fetch current subscription pricing for a given service',
-        inputSchema: {
-          service: { type: 'string', description: 'Service name' },
-        },
+        name: 'fetch_market_context',
+        description: 'Fetch live execution context such as gas, chain height, and budget pressure',
       },
       {
         name: 'fetch_api_pricing',
-        description: 'Fetch API pricing tiers for a given provider',
-        inputSchema: {
-          provider: { type: 'string', description: 'API provider name' },
-        },
+        description: 'Fetch API pricing from a provided endpoint',
       },
       {
         name: 'fetch_usage_metrics',
-        description: 'Fetch current usage metrics for a given service',
-        inputSchema: {
-          service: { type: 'string', description: 'Service name' },
-          metric: { type: 'string', description: 'Metric type' },
-        },
+        description: 'Return wallet and network metrics relevant to a mission',
       },
     ];
   }
@@ -58,27 +32,17 @@ export class DataAgent extends BaseAgent {
   async handleTask(task: AgentTask): Promise<TaskResult> {
     this.dataLogger.info({ taskId: task.taskId, type: task.type }, 'DataAgent handling task');
 
-    await this.libp2p.broadcastIntent(
-      this.identity.agentId,
-      'FETCHING',
-      `Fetching data for task: ${task.type}`,
-      task.payload.service as string | undefined
-    );
-
     try {
-      let data: unknown;
+      let result: unknown;
       switch (task.type) {
-        case 'fetch_subscription_data':
-          data = await this.fetchSubscriptionData(task.payload.service as string);
+        case 'fetch_market_context':
+          result = await this.fetchMarketContext(task.payload);
           break;
         case 'fetch_api_pricing':
-          data = await this.fetchApiPricing(task.payload.provider as string);
+          result = await this.fetchApiPricing(task.payload);
           break;
         case 'fetch_usage_metrics':
-          data = await this.fetchUsageMetrics(
-            task.payload.service as string,
-            task.payload.metric as string
-          );
+          result = await this.fetchUsageMetrics(task.payload);
           break;
         default:
           return {
@@ -92,7 +56,7 @@ export class DataAgent extends BaseAgent {
       return {
         taskId: task.taskId,
         success: true,
-        data: { result: data },
+        data: { result },
         completedAt: Date.now(),
       };
     } catch (error) {
@@ -105,80 +69,50 @@ export class DataAgent extends BaseAgent {
     }
   }
 
-  private async fetchSubscriptionData(service: string): Promise<SubscriptionInfo> {
-    const mockData: Record<string, SubscriptionInfo> = {
-      Slack: {
-        vendor: 'Slack',
-        plan: 'Pro',
-        price: 12.5,
-        currency: 'USD',
-        billingCycle: 'monthly',
-        features: ['unlimited messages', 'screen sharing', 'unlimited apps', '90-day history'],
-        usersIncluded: 10,
-      },
-      GitHub: {
-        vendor: 'GitHub',
-        plan: 'Team',
-        price: 21,
-        currency: 'USD',
-        billingCycle: 'monthly',
-        features: ['unlimited repos', '3000 CI minutes', 'code owners', 'protected branches'],
-        usersIncluded: 5,
-      },
-      Notion: {
-        vendor: 'Notion',
-        plan: 'Plus',
-        price: 16,
-        currency: 'USD',
-        billingCycle: 'monthly',
-        features: ['unlimited pages', 'collaboration', 'version history', 'API access'],
-        usersIncluded: 10,
-      },
-    };
+  private async fetchMarketContext(payload: Record<string, unknown>) {
+    const [blockNumber, feeData] = await Promise.all([
+      this.provider.getBlockNumber(),
+      this.provider.getFeeData(),
+    ]);
 
-    return (
-      mockData[service] ?? {
-        vendor: service,
-        plan: 'Standard',
-        price: 10,
-        currency: 'USD',
-        billingCycle: 'monthly',
-        features: ['basic'],
-        usersIncluded: 5,
-      }
-    );
-  }
-
-  private async fetchApiPricing(provider: string): Promise<Record<string, unknown>> {
-    const mockPricing: Record<string, Record<string, unknown>> = {
-      OpenAI: {
-        gpt4: { pricePerToken: 0.00003, inputTokens: 0.00001, currency: 'USD' },
-        gpt35: { pricePerToken: 0.000002, currency: 'USD' },
-      },
-      Anthropic: {
-        claude3: { pricePerToken: 0.000015, currency: 'USD' },
-        claudeHaiku: { pricePerToken: 0.0000025, currency: 'USD' },
-      },
-    };
-
-    return (
-      mockPricing[provider] ?? {
-        standard: { pricePerCall: 0.001, currency: 'USD' },
-      }
-    );
-  }
-
-  private async fetchUsageMetrics(
-    service: string,
-    metric: string
-  ): Promise<Record<string, unknown>> {
     return {
-      service,
-      metric,
-      value: Math.floor(Math.random() * 1000),
-      unit: metric === 'storage' ? 'GB' : 'calls',
-      period: '2024-01',
-      timestamp: new Date().toISOString(),
+      objective: payload.objective,
+      blockNumber,
+      gasPriceWei: feeData.gasPrice?.toString() ?? '0',
+      maxFeePerGasWei: feeData.maxFeePerGas?.toString() ?? '0',
+      budgetWei: String(payload.budgetWei ?? '0'),
+      autonomyLevel: Number(payload.autonomyLevel ?? 2),
+      fetchedAt: new Date().toISOString(),
+    };
+  }
+
+  private async fetchApiPricing(payload: Record<string, unknown>) {
+    const url = typeof payload.url === 'string' ? payload.url : undefined;
+    if (!url) {
+      throw new Error('fetch_api_pricing requires a url');
+    }
+
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`Pricing endpoint failed with ${response.status}`);
+    }
+
+    return {
+      url,
+      fetchedAt: new Date().toISOString(),
+      payload: await response.json(),
+    };
+  }
+
+  private async fetchUsageMetrics(payload: Record<string, unknown>) {
+    const address = typeof payload.address === 'string' ? payload.address : this.identity.address;
+    const balanceWei = await this.provider.getBalance(address);
+
+    return {
+      address,
+      balanceWei: balanceWei.toString(),
+      balanceEth: ethers.formatEther(balanceWei),
+      sampledAt: new Date().toISOString(),
     };
   }
 }

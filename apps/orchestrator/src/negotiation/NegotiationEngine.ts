@@ -38,7 +38,7 @@ export class NegotiationEngine {
       this.logger.info({ round, taskId }, 'Negotiation round');
 
       for (const vendor of vendors) {
-        const bid = this.simulateVendorBid(vendor, taskId, round, initialBudget, currency);
+        const bid = await this.requestVendorBid(vendor, taskId, round, initialBudget, currency);
         allBids.push(bid);
 
         // Broadcast bid to libp2p
@@ -91,30 +91,40 @@ export class NegotiationEngine {
     return result;
   }
 
-  private simulateVendorBid(
+  private async requestVendorBid(
     vendor: AgentCard,
     taskId: string,
     round: number,
     initialBudget: bigint,
     currency: string
-  ): Bid {
-    // Start at list price, discount up to MAX_VENDOR_DISCOUNT_PERCENT after 2 rounds
-    const listPrice = Number(initialBudget);
-    let price = listPrice;
+  ): Promise<Bid> {
+    const response = await fetch(`${vendor.url.replace(/\/$/, '')}/quotes`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        taskId,
+        round,
+        objective: 'legacy-negotiation',
+        budgetWei: initialBudget.toString(),
+        currency,
+      }),
+    });
 
-    if (round === 2) {
-      price = listPrice * (1 - (MAX_VENDOR_DISCOUNT_PERCENT / 2) / 100);
-    } else if (round >= 3) {
-      price = listPrice * (1 - MAX_VENDOR_DISCOUNT_PERCENT / 100);
+    if (!response.ok) {
+      throw new Error(`Vendor quote request failed with ${response.status}`);
     }
 
-    // Add small variance per vendor
-    const variance = (vendor.reputationScore ?? 50) / 1000;
-    price = price * (1 - variance);
+    const payload = (await response.json()) as Array<{
+      initialPriceWei: string;
+    }>;
+    const firstQuote = payload[0];
+    if (!firstQuote) {
+      throw new Error(`Vendor ${vendor.name} returned no quotes`);
+    }
 
     return {
       taskId,
-      price: price.toFixed(6),
+      price: firstQuote.initialPriceWei,
       currency,
       deadline: Date.now() + 86400000,
       capabilities: vendor.capabilities,

@@ -1,68 +1,61 @@
 import pino from 'pino';
-import { BaseAgent, LibP2PClient, IPFSStorage, DecisionProver } from '@agentmesh/agent-sdk';
-import type { AgentTask, TaskResult, AgentCapability } from '@agentmesh/agent-sdk';
+import { BaseAgent, ImpulseClient } from '@agentmesh/agent-sdk';
+import type { AgentCapability, AgentTask, TaskResult } from '@agentmesh/agent-sdk';
 import { scoreVendor } from '@agentmesh/shared';
+import type { RiskAssessment, SettlementRiskFeatures, VendorQuote } from '@agentmesh/shared';
 
-interface VendorScore {
-  vendorId: string;
-  name: string;
-  price: number;
-  reputationScore: number;
-  successRate: number;
+interface VendorScorecardEntry {
+  vendorKey: string;
   score: number;
-  recommendation: string;
+  rationale: string;
+}
+
+interface VendorScoringResult {
+  winnerVendorKey: string;
+  reasoning: string;
+  recommendedCounterPriceWei: string;
+  scorecard: VendorScorecardEntry[];
 }
 
 export class ComputeAgent extends BaseAgent {
   private computeLogger = pino({ level: 'info', name: 'ComputeAgent' });
-  private libp2p: LibP2PClient;
-  private ipfs: IPFSStorage;
-  private decisionProver: DecisionProver;
+  private impulse: ImpulseClient;
 
   constructor(
     config: ConstructorParameters<typeof BaseAgent>[0],
-    private readonly anthropicApiKey: string
+    private readonly impulseApiKey?: string,
+    private readonly impulseDeploymentId?: string
   ) {
     super(config);
-    this.libp2p = new LibP2PClient(
-      config.libp2pPort,
-      config.bootstrapPeers,
-      this.identity.agentId
-    );
-    this.ipfs = new IPFSStorage();
-    this.decisionProver = new DecisionProver(config.privateKey);
+    this.impulse = new ImpulseClient(this.impulseApiKey, this.impulseDeploymentId);
   }
 
   getCapabilities(): AgentCapability[] {
     return [
-      { name: 'analyze_pricing', description: 'Analyze subscription pricing options' },
-      { name: 'score_vendors', description: 'Score and rank vendor agents' },
-      { name: 'calculate_savings', description: 'Calculate potential savings from switching' },
+      { name: 'analyze_pricing', description: 'Analyze pricing and savings tradeoffs' },
+      { name: 'score_vendors', description: 'Score and rank vendor agents using live quotes' },
+      { name: 'calculate_savings', description: 'Calculate net savings from a candidate settlement' },
+      { name: 'assess_settlement_risk', description: 'Predict settlement failure risk for a mission' },
     ];
   }
 
   async handleTask(task: AgentTask): Promise<TaskResult> {
     this.computeLogger.info({ taskId: task.taskId, type: task.type }, 'ComputeAgent handling task');
 
-    await this.libp2p.broadcastIntent(
-      this.identity.agentId,
-      'COMPUTING',
-      `Analyzing task: ${task.type}`
-    );
-
     try {
       let result: unknown;
-      const inputHash = { taskId: task.taskId, type: task.type, payload: task.payload };
-
       switch (task.type) {
         case 'analyze_pricing':
-          result = await this.analyzePricing(task.payload);
+          result = this.analyzePricing(task.payload);
           break;
         case 'score_vendors':
-          result = await this.scoreVendors(task.payload);
+          result = this.scoreVendors(task.payload);
           break;
         case 'calculate_savings':
-          result = await this.calculateSavings(task.payload);
+          result = this.calculateSavings(task.payload);
+          break;
+        case 'assess_settlement_risk':
+          result = await this.assessSettlementRisk(task.payload as unknown as SettlementRiskFeatures);
           break;
         default:
           return {
@@ -73,19 +66,10 @@ export class ComputeAgent extends BaseAgent {
           };
       }
 
-      // Create decision proof
-      const reasoningArr = [`Computed ${task.type}`, `Result: ${JSON.stringify(result).slice(0, 100)}`];
-      const proofResult = await this.decisionProver.proveDecision(
-        { taskId: task.taskId, inputs: inputHash, timestamp: Date.now() },
-        { taskId: task.taskId, outputs: { result }, reasoning: reasoningArr, timestamp: Date.now() },
-        reasoningArr
-      );
-
       return {
         taskId: task.taskId,
         success: true,
         data: { result },
-        decisionProof: proofResult.isOk() ? proofResult.value : undefined,
         completedAt: Date.now(),
       };
     } catch (error) {
@@ -98,89 +82,87 @@ export class ComputeAgent extends BaseAgent {
     }
   }
 
-  private async analyzePricing(payload: Record<string, unknown>): Promise<Record<string, unknown>> {
-    const rawVendors = Array.isArray(payload.vendors) ? payload.vendors : [];
-    const vendors = rawVendors.filter(
-      (v): v is { name: string; price: number } =>
-        typeof v === 'object' &&
-        v !== null &&
-        typeof (v as Record<string, unknown>).name === 'string' &&
-        typeof (v as Record<string, unknown>).price === 'number'
-    );
-    const currentPrice = typeof payload.currentPrice === 'number' ? payload.currentPrice : 0;
+  async assessSettlementRisk(input: SettlementRiskFeatures): Promise<RiskAssessment> {
+    return this.impulse.assessSettlementRisk(input);
+  }
 
-    const analysis = vendors.map((v) => ({
-      vendor: v.name,
-      price: v.price,
-      vsCurrentPrice: v.price - currentPrice,
-      percentChange: currentPrice > 0 ? ((v.price - currentPrice) / currentPrice) * 100 : 0,
-      recommendation: v.price < currentPrice ? 'switch' : 'stay',
-    }));
-
-    const bestOption = analysis.reduce(
-      (best, curr) => (curr.price < best.price ? curr : best),
-      analysis[0] ?? { price: currentPrice, vendor: 'current' }
-    );
+  private analyzePricing(payload: Record<string, unknown>) {
+    const currentPriceWei = String(payload.currentPriceWei ?? '0');
+    const candidatePriceWei = String(payload.candidatePriceWei ?? '0');
+    const currentPrice = Number(currentPriceWei);
+    const candidatePrice = Number(candidatePriceWei);
 
     return {
-      analysis,
-      bestOption,
-      currentPrice,
-      potentialSavings: currentPrice - (bestOption.price ?? currentPrice),
-      recommendation:
-        bestOption.price < currentPrice
-          ? `Switch to ${bestOption.vendor} to save $${(currentPrice - bestOption.price).toFixed(2)}/month`
-          : 'Current plan is competitively priced',
+      currentPriceWei,
+      candidatePriceWei,
+      candidateBeatsCurrent: candidatePrice < currentPrice || currentPrice === 0,
+      absoluteDifferenceWei: Math.max(0, currentPrice - candidatePrice).toString(),
     };
   }
 
-  private async scoreVendors(payload: Record<string, unknown>): Promise<VendorScore[]> {
-    const vendors = (payload.vendors as Array<{
-      id: string;
-      name: string;
-      price: number;
-      reputationScore?: number;
-      successRate?: number;
-    }>) ?? [];
+  private scoreVendors(payload: Record<string, unknown>): VendorScoringResult {
+    const vendors = Array.isArray(payload.vendors) ? (payload.vendors as VendorQuote[]) : [];
+    if (vendors.length === 0) {
+      throw new Error('At least one vendor quote is required for scoring');
+    }
 
-    const maxPrice = Math.max(...vendors.map((v) => v.price), 1);
+    const highestInitial = vendors.reduce((max, vendor) => {
+      const next = Number(vendor.initialPriceWei);
+      return Number.isFinite(next) && next > max ? next : max;
+    }, 1);
 
-    return vendors
-      .map((v) => {
-        const reputation = (v.reputationScore ?? 50) / 100;
-        const priceScore = 1 - v.price / maxPrice;
-        const successRate = v.successRate ?? 0.9;
-        const score = scoreVendor(reputation, priceScore, successRate);
-
+    const scorecard = vendors
+      .map((vendor) => {
+        const reputationScore = vendor.reputationScore / 100;
+        const priceScore = Math.max(0, 1 - Number(vendor.initialPriceWei) / highestInitial);
+        const reliability = vendor.successRate;
+        const score = scoreVendor(reputationScore, priceScore, reliability);
         return {
-          vendorId: v.id,
-          name: v.name,
-          price: v.price,
-          reputationScore: v.reputationScore ?? 50,
-          successRate,
+          vendorKey: vendor.vendorKey,
           score,
-          recommendation: score > 0.7 ? 'highly recommended' : score > 0.5 ? 'recommended' : 'not recommended',
+          rationale: buildVendorRationale(vendor, score),
         };
       })
-      .sort((a, b) => b.score - a.score);
-  }
+      .sort((left, right) => right.score - left.score);
 
-  private async calculateSavings(payload: Record<string, unknown>): Promise<Record<string, unknown>> {
-    const currentPrice = typeof payload.currentPrice === 'number' ? payload.currentPrice : 0;
-    const newPrice = typeof payload.newPrice === 'number' ? payload.newPrice : 0;
-    const monthlySavings = currentPrice - newPrice;
+    const winner = scorecard[0];
+    const winnerQuote = vendors.find((vendor) => vendor.vendorKey === winner.vendorKey);
+    if (!winnerQuote) {
+      throw new Error(`Winning vendor ${winner.vendorKey} is missing from the quote set`);
+    }
+
+    const recommendedCounterPriceWei = recommendCounterPrice(winnerQuote);
 
     return {
-      currentPrice,
-      newPrice,
-      monthlySavings,
-      annualSavings: monthlySavings * 12,
-      percentSaved: currentPrice > 0 ? (monthlySavings / currentPrice) * 100 : 0,
-      breakEvenMonths: 0,
-      recommendation:
-        monthlySavings > 0
-          ? `Switch to save $${(monthlySavings * 12).toFixed(2)}/year`
-          : 'Stay with current provider',
+      winnerVendorKey: winner.vendorKey,
+      reasoning: `Selected ${winnerQuote.vendorName} because it offers the best balance of price discipline, onchain reliability, and historical execution quality.`,
+      recommendedCounterPriceWei,
+      scorecard,
     };
   }
+
+  private calculateSavings(payload: Record<string, unknown>) {
+    const baselinePriceWei = BigInt(String(payload.baselinePriceWei ?? '0'));
+    const finalPriceWei = BigInt(String(payload.finalPriceWei ?? '0'));
+    const savingsWei = baselinePriceWei > finalPriceWei ? baselinePriceWei - finalPriceWei : 0n;
+
+    return {
+      baselinePriceWei: baselinePriceWei.toString(),
+      finalPriceWei: finalPriceWei.toString(),
+      savingsWei: savingsWei.toString(),
+    };
+  }
+}
+
+function recommendCounterPrice(vendor: VendorQuote) {
+  const initial = BigInt(vendor.initialPriceWei);
+  const floor = BigInt(vendor.floorPriceWei);
+  const discountBps = vendor.reputationScore >= 90 ? 850n : vendor.reputationScore >= 80 ? 900n : 935n;
+  const discounted = (initial * discountBps) / 1000n;
+  return (discounted < floor ? floor : discounted).toString();
+}
+
+function buildVendorRationale(vendor: VendorQuote, score: number) {
+  const priceEth = Number(vendor.initialPriceWei) / 1e18;
+  return `${vendor.vendorName} scored ${score.toFixed(2)} with ${vendor.reputationScore} reputation, ${(vendor.successRate * 100).toFixed(1)}% success, and a ${priceEth.toFixed(4)} ETH initial quote.`;
 }

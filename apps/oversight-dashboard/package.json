@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "build": "tsc && vite build",
+    "build": "node scripts/generate-agent-manifest.mjs && tsc && vite build",
     "dev": "vite",
     "preview": "vite preview",
     "lint": "eslint src --ext .ts,.tsx",

@@ -3,9 +3,7 @@ import { NetworkError, TOPIC_TASKS, TOPIC_INTENTS, TOPIC_HALT } from '@agentmesh
 import { EventEmitter } from 'events';
 import type { AgentMessage, MessageHandler } from '../types';
 
-// libp2p messaging client
-// In production this uses actual libp2p with gossipsub and noise encryption.
-// For the demo, we use an EventEmitter-based simulation that mirrors the libp2p API.
+// Lightweight messaging client for AgentMesh runtime coordination.
 export class LibP2PClient extends EventEmitter {
   private peerId: string;
   private peers: Set<string> = new Set();

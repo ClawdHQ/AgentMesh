@@ -8,6 +8,7 @@ import pinoHttp from 'pino-http';
 import { WebSocketServer, WebSocket } from 'ws';
 import { z } from 'zod';
 import { StructuredAutonomousSystem } from './mesh/runtime';
+import type { StorageProvider } from '@agentmesh/shared';
 
 dotenv.config({ path: path.resolve(__dirname, '../.env') });
 dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
@@ -21,11 +22,21 @@ const EnvSchema = z.object({
   AGENT_REGISTRY_ADDRESS: z.string().optional(),
   TASK_ESCROW_ADDRESS: z.string().optional(),
   AUDIT_LOGGER_ADDRESS: z.string().optional(),
+  REPUTATION_ORACLE_ADDRESS: z.string().optional(),
   OPENROUTER_API_KEY: z.string().optional(),
   OPENROUTER_MODEL: z.string().default('openai/gpt-4.1-mini'),
   LIGHTHOUSE_API_KEY: z.string().optional(),
   LIGHTHOUSE_GATEWAY_URL: z.string().default('https://gateway.lighthouse.storage/ipfs/'),
   LIT_NETWORK: z.string().default('datil-dev'),
+  FILECOIN_STORAGE_PROVIDER: z.enum(['lighthouse', 'filecoin-pin']).default('lighthouse'),
+  ORCHESTRATOR_SERVICE_URL: z.string().optional(),
+  SPECIALIST_SERVICE_URL: z.string().optional(),
+  VENDOR_SERVICE_URLS: z.string().default(''),
+  INTERNAL_SERVICE_API_KEY: z.string().optional(),
+  IMPULSE_API_KEY: z.string().optional(),
+  IMPULSE_DEPLOYMENT_ID: z.string().optional(),
+  PUBLIC_API_URL: z.string().default('http://localhost:3001'),
+  PUBLIC_DASHBOARD_URL: z.string().default('http://localhost:5173'),
   AUTONOMY_LEVEL: z.coerce.number().default(2),
   VITE_DASHBOARD_ORIGIN: z.string().default('http://localhost:5173'),
 });
@@ -41,12 +52,22 @@ const runtime = new StructuredAutonomousSystem({
   registryAddress: env.AGENT_REGISTRY_ADDRESS,
   taskEscrowAddress: env.TASK_ESCROW_ADDRESS,
   auditLoggerAddress: env.AUDIT_LOGGER_ADDRESS,
+  reputationOracleAddress: env.REPUTATION_ORACLE_ADDRESS,
   autonomyLevel: env.AUTONOMY_LEVEL,
   openRouterApiKey: env.OPENROUTER_API_KEY,
   openRouterModel: env.OPENROUTER_MODEL,
   lighthouseApiKey: env.LIGHTHOUSE_API_KEY,
   lighthouseGatewayUrl: env.LIGHTHOUSE_GATEWAY_URL,
   litNetwork: env.LIT_NETWORK,
+  filecoinStorageProvider: env.FILECOIN_STORAGE_PROVIDER as StorageProvider,
+  orchestratorServiceUrl: env.ORCHESTRATOR_SERVICE_URL,
+  specialistServiceUrl: env.SPECIALIST_SERVICE_URL,
+  vendorServiceUrls: env.VENDOR_SERVICE_URLS.split(',').map((value) => value.trim()).filter(Boolean),
+  internalServiceApiKey: env.INTERNAL_SERVICE_API_KEY,
+  impulseApiKey: env.IMPULSE_API_KEY,
+  impulseDeploymentId: env.IMPULSE_DEPLOYMENT_ID,
+  publicApiUrl: env.PUBLIC_API_URL,
+  publicDashboardUrl: env.PUBLIC_DASHBOARD_URL,
 });
 
 const app = express();
@@ -86,15 +107,39 @@ const AutonomySchema = z.object({
 });
 
 app.get('/health', async (_req, res) => {
+  const snapshot = runtime.getSnapshot();
   res.json({
     status: 'ok',
     websocketClients: wss.clients.size,
-    snapshot: runtime.getSnapshot(),
+    ready: snapshot.ready,
+    blockers: snapshot.blockers,
+    readiness: snapshot.readiness,
+    snapshot,
   });
+});
+
+app.get('/ready', async (_req, res) => {
+  res.json(runtime.getReadiness());
 });
 
 app.get('/system', async (_req, res) => {
   res.json(runtime.getSnapshot());
+});
+
+app.get('/agent.json', async (_req, res) => {
+  res.json(runtime.getManifest());
+});
+
+app.get('/agent_log.json', async (_req, res) => {
+  res.json(runtime.getAgentLog());
+});
+
+app.get('/artifacts/:cid', async (req, res) => {
+  const artifact = runtime.getArtifact(req.params.cid);
+  if (!artifact) {
+    return res.status(404).json({ error: 'Artifact not found' });
+  }
+  return res.json(artifact);
 });
 
 app.get('/agents', async (_req, res) => {

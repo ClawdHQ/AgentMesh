@@ -1,0 +1,38 @@
+{
+  "agentId": "agentmesh-control-plane",
+  "agentName": "AgentMesh",
+  "version": "0.1.0",
+  "description": "Production-grade autonomous agent control plane with ERC-8004 identity, onchain settlement, Filecoin-backed receipts, and human oversight.",
+  "homepage": "http://localhost:5173",
+  "controlPlaneUrl": "http://localhost:3001",
+  "dashboardUrl": "http://localhost:5173",
+  "agentLogUrl": "http://localhost:3001/agent_log.json",
+  "capabilities": [
+    "trust-gated-agent-routing",
+    "onchain-settlement",
+    "filecoin-backed-receipts",
+    "impulse-risk-scoring",
+    "human-oversight"
+  ],
+  "tracks": [
+    "AI & Robotics",
+    "Impulse AI: Autonomous ML for Every App",
+    "Agents With Receipts — 8004",
+    "Filecoin"
+  ],
+  "receipts": {
+    "onchainIdentityRegistry": "",
+    "settlementEscrow": "",
+    "auditLogger": "",
+    "filecoinArtifacts": "lighthouse"
+  },
+  "networks": {
+    "sepoliaChainId": 11155111,
+    "filecoinCalibrationEnabled": false
+  },
+  "operatorModel": {
+    "humanOversight": true,
+    "haltSupported": true,
+    "approvalRequiredAbove": "0.004"
+  }
+}

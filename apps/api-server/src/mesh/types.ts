@@ -1,3 +1,14 @@
+import type {
+  AgentLogEntry,
+  AgentManifest,
+  ArtifactReference,
+  InternalAgentDescriptor,
+  MissionPlan,
+  RiskAssessment,
+  SettlementRiskFeatures,
+  StorageProvider,
+} from '@agentmesh/shared';
+
 export type AgentRole =
   | 'orchestrator'
   | 'data'
@@ -97,6 +108,12 @@ export interface MeshTask {
   decisionCID?: string;
   resultCID?: string;
   aiReasoning?: string;
+  missionPlan?: MissionPlan;
+  riskFeatures?: SettlementRiskFeatures;
+  riskAssessment?: RiskAssessment;
+  requirementsArtifact?: ArtifactReference;
+  resultArtifact?: ArtifactReference;
+  memoryArtifact?: ArtifactReference;
   settlement?: {
     taskId: number;
     createTxHash: string;
@@ -155,27 +172,48 @@ export interface RuntimeMetrics {
   decisionsLogged: number;
   totalSettledWei: string;
   totalSavingsWei: string;
+  highRiskMissions: number;
+}
+
+export interface ServiceStatus {
+  key: string;
+  url: string;
+  ready: boolean;
+  lastCheckedAt?: string;
+  error?: string;
+  agents: InternalAgentDescriptor[];
+}
+
+export interface ReadinessStatus {
+  state: 'idle' | 'hydrating' | 'ready' | 'error';
+  lastHydratedAt?: string;
+  inFlight: boolean;
+  services: ServiceStatus[];
 }
 
 export interface RuntimeSnapshot {
   ready: boolean;
   halted: boolean;
   blockers: string[];
+  readiness: ReadinessStatus;
   network: {
     chainId: number;
     label: string;
     registryAddress?: string;
     taskEscrowAddress?: string;
     auditLoggerAddress?: string;
+    storageProvider: StorageProvider;
   };
   autonomyLevel: number;
   metrics: RuntimeMetrics;
+  manifest: AgentManifest;
   agents: MeshAgent[];
   intents: IntentEntry[];
   tasks: MeshTask[];
   audit: AuditEntry[];
   payments: PaymentEvent[];
   memory: MemorySnapshot[];
+  agentLog: AgentLogEntry[];
 }
 
 export interface RunMissionInput {

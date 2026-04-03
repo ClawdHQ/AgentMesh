@@ -1,0 +1,159 @@
+services:
+  - type: web
+    name: agentmesh-api
+    runtime: node
+    repo: https://github.com/ClawdHQ/AgentMesh
+    plan: starter
+    autoDeploy: true
+    buildCommand: pnpm install --frozen-lockfile && pnpm build
+    startCommand: pnpm --filter @agentmesh/api-server start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      - key: NODE_ENV
+        value: production
+      - key: API_PORT
+        value: 10000
+      - key: CHAIN_ID
+        value: 11155111
+      - key: AUTONOMY_LEVEL
+        value: 2
+      - key: FILECOIN_STORAGE_PROVIDER
+        value: lighthouse
+      - key: PUBLIC_DASHBOARD_URL
+        value: https://agent-mesh-os.vercel.app
+      - key: PUBLIC_API_URL
+        value: https://agentmesh-api.onrender.com
+      - key: VITE_DASHBOARD_ORIGIN
+        value: https://agent-mesh-os.vercel.app
+      - key: ORCHESTRATOR_SERVICE_URL
+        value: http://agentmesh-orchestrator:10000
+      - key: SPECIALIST_SERVICE_URL
+        value: http://agentmesh-specialist:10000
+      - key: VENDOR_SERVICE_URLS
+        value: http://agentmesh-vendor:10000
+      - key: INTERNAL_SERVICE_API_KEY
+        sync: false
+      - key: PRIVATE_KEY
+        sync: false
+      - key: SEPOLIA_RPC_URL
+        sync: false
+      - key: AGENT_REGISTRY_ADDRESS
+        sync: false
+      - key: TASK_ESCROW_ADDRESS
+        sync: false
+      - key: REPUTATION_ORACLE_ADDRESS
+        sync: false
+      - key: AUDIT_LOGGER_ADDRESS
+        sync: false
+      - key: LIGHTHOUSE_API_KEY
+        sync: false
+      - key: LIGHTHOUSE_GATEWAY_URL
+        sync: false
+      - key: FILECOIN_PIN_COMMAND
+        sync: false
+      - key: FILECOIN_PIN_GATEWAY_URL
+        sync: false
+      - key: LIT_NETWORK
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: IMPULSE_API_KEY
+        sync: false
+      - key: IMPULSE_DEPLOYMENT_ID
+        sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: OPENROUTER_MODEL
+        sync: false
+
+  - type: pserv
+    name: agentmesh-orchestrator
+    runtime: node
+    repo: https://github.com/ClawdHQ/AgentMesh
+    plan: starter
+    autoDeploy: true
+    buildCommand: pnpm install --frozen-lockfile && pnpm build
+    startCommand: pnpm --filter @agentmesh/orchestrator start
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      - key: NODE_ENV
+        value: production
+      - key: ORCHESTRATOR_PORT
+        value: 10000
+      - key: INTERNAL_SERVICE_API_KEY
+        sync: false
+      - key: PRIVATE_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: LOG_LEVEL
+        value: info
+
+  - type: pserv
+    name: agentmesh-specialist
+    runtime: node
+    repo: https://github.com/ClawdHQ/AgentMesh
+    plan: starter
+    autoDeploy: true
+    buildCommand: pnpm install --frozen-lockfile && pnpm build
+    startCommand: pnpm --filter @agentmesh/specialist-agents start
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      - key: NODE_ENV
+        value: production
+      - key: SPECIALIST_AGENTS_PORT
+        value: 10000
+      - key: USDC_ADDRESS_SEPOLIA
+        value: 0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238
+      - key: DATA_AGENT_PRICE_USDC
+        value: 1000
+      - key: COMPUTE_AGENT_PRICE_USDC
+        value: 5000
+      - key: EXECUTOR_AGENT_PRICE_USDC
+        value: 2000
+      - key: INTERNAL_SERVICE_API_KEY
+        sync: false
+      - key: PRIVATE_KEY
+        sync: false
+      - key: SEPOLIA_RPC_URL
+        sync: false
+      - key: AGENT_REGISTRY_ADDRESS
+        sync: false
+      - key: REPUTATION_ORACLE_ADDRESS
+        sync: false
+      - key: IMPULSE_API_KEY
+        sync: false
+      - key: IMPULSE_DEPLOYMENT_ID
+        sync: false
+      - key: LOG_LEVEL
+        value: info
+
+  - type: pserv
+    name: agentmesh-vendor
+    runtime: node
+    repo: https://github.com/ClawdHQ/AgentMesh
+    plan: starter
+    autoDeploy: true
+    buildCommand: pnpm install --frozen-lockfile && pnpm build
+    startCommand: pnpm --filter @agentmesh/vendor-agent start
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      - key: NODE_ENV
+        value: production
+      - key: VENDOR_AGENT_PORT
+        value: 10000
+      - key: USDC_ADDRESS_SEPOLIA
+        value: 0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238
+      - key: INTERNAL_SERVICE_API_KEY
+        sync: false
+      - key: PRIVATE_KEY
+        sync: false
+      - key: SEPOLIA_RPC_URL
+        sync: false
+      - key: LOG_LEVEL
+        value: info

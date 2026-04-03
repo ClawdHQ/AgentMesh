@@ -9,12 +9,19 @@ type Snapshot = {
   ready: boolean;
   halted: boolean;
   blockers: string[];
+  readiness: {
+    state: 'idle' | 'hydrating' | 'ready' | 'error';
+    lastHydratedAt?: string;
+    inFlight: boolean;
+    services: ServiceStatus[];
+  };
   network: {
     chainId: number;
     label: string;
     registryAddress?: string;
     taskEscrowAddress?: string;
     auditLoggerAddress?: string;
+    storageProvider: 'lighthouse' | 'filecoin-pin';
   };
   autonomyLevel: number;
   metrics: {
@@ -24,13 +31,72 @@ type Snapshot = {
     decisionsLogged: number;
     totalSettledWei: string;
     totalSavingsWei: string;
+    highRiskMissions: number;
   };
+  manifest: AgentManifest;
   agents: Agent[];
   intents: IntentEntry[];
   tasks: MeshTask[];
   audit: AuditEntry[];
   payments: PaymentEvent[];
   memory: MemorySnapshot[];
+  agentLog: AgentLogEntry[];
+};
+
+type ServiceStatus = {
+  key: string;
+  url: string;
+  ready: boolean;
+  lastCheckedAt?: string;
+  error?: string;
+  agents: Array<{
+    key: string;
+    name: string;
+    role: string;
+    url: string;
+    description: string;
+    capabilities: string[];
+  }>;
+};
+
+type AgentManifest = {
+  agentId: string;
+  agentName: string;
+  version: string;
+  description: string;
+  homepage: string;
+  controlPlaneUrl: string;
+  dashboardUrl: string;
+  agentLogUrl: string;
+  capabilities: string[];
+  tracks: string[];
+  receipts: {
+    onchainIdentityRegistry?: string;
+    settlementEscrow?: string;
+    auditLogger?: string;
+    filecoinArtifacts?: string;
+  };
+  networks: {
+    sepoliaChainId: number;
+    filecoinCalibrationEnabled: boolean;
+  };
+  operatorModel: {
+    humanOversight: boolean;
+    haltSupported: boolean;
+    approvalRequiredAbove: string;
+  };
+};
+
+type AgentLogEntry = {
+  id: string;
+  type: 'hydration' | 'mission' | 'approval' | 'settlement' | 'audit' | 'storage' | 'error';
+  title: string;
+  status: 'pending' | 'completed' | 'failed';
+  createdAt: string;
+  taskId?: string;
+  txHash?: string;
+  cid?: string;
+  summary?: string;
 };
 
 type Agent = {
@@ -104,6 +170,42 @@ type MeshTask = {
   decisionCID?: string;
   resultCID?: string;
   aiReasoning?: string;
+  missionPlan?: {
+    summary: string;
+    checkpoints: string[];
+    approvalPolicy: string;
+  };
+  riskAssessment?: {
+    provider: 'impulse' | 'heuristic';
+    score: number;
+    label: 'low' | 'medium' | 'high';
+    requiresApproval: boolean;
+    rationale: string;
+    evaluatedAt?: string;
+    deploymentId?: string;
+    modelVersion?: string;
+  };
+  requirementsArtifact?: {
+    cid: string;
+    uri?: string;
+    gatewayUrl: string;
+    provider?: 'lighthouse' | 'filecoin-pin';
+    network: 'ipfs' | 'filecoin-calibration';
+  };
+  resultArtifact?: {
+    cid: string;
+    uri?: string;
+    gatewayUrl: string;
+    provider?: 'lighthouse' | 'filecoin-pin';
+    network: 'ipfs' | 'filecoin-calibration';
+  };
+  memoryArtifact?: {
+    cid: string;
+    uri?: string;
+    gatewayUrl: string;
+    provider?: 'lighthouse' | 'filecoin-pin';
+    network: 'ipfs' | 'filecoin-calibration';
+  };
   settlement?: {
     taskId: number;
     createTxHash: string;
@@ -161,9 +263,15 @@ const EMPTY_SNAPSHOT: Snapshot = {
   ready: false,
   halted: false,
   blockers: ['Connecting to the control plane'],
+  readiness: {
+    state: 'idle',
+    inFlight: false,
+    services: [],
+  },
   network: {
     chainId: 11155111,
     label: 'Ethereum Sepolia',
+    storageProvider: 'lighthouse',
   },
   autonomyLevel: 2,
   metrics: {
@@ -173,6 +281,29 @@ const EMPTY_SNAPSHOT: Snapshot = {
     decisionsLogged: 0,
     totalSettledWei: '0',
     totalSavingsWei: '0',
+    highRiskMissions: 0,
+  },
+  manifest: {
+    agentId: 'agentmesh-control-plane',
+    agentName: 'AgentMesh',
+    version: '0.1.0',
+    description: 'Connecting to manifest',
+    homepage: '',
+    controlPlaneUrl: '',
+    dashboardUrl: '',
+    agentLogUrl: '',
+    capabilities: [],
+    tracks: [],
+    receipts: {},
+    networks: {
+      sepoliaChainId: 11155111,
+      filecoinCalibrationEnabled: false,
+    },
+    operatorModel: {
+      humanOversight: true,
+      haltSupported: true,
+      approvalRequiredAbove: '0',
+    },
   },
   agents: [],
   intents: [],
@@ -180,6 +311,7 @@ const EMPTY_SNAPSHOT: Snapshot = {
   audit: [],
   payments: [],
   memory: [],
+  agentLog: [],
 };
 
 const TABS: Array<{ key: TabKey; label: string }> = [
@@ -262,8 +394,10 @@ export function App() {
     [selectedAgentKey, snapshot.agents]
   );
   const latestTask = snapshot.tasks[0];
+  const latestLog = snapshot.agentLog[0];
   const vendorAgents = snapshot.agents.filter((agent) => agent.role === 'vendor');
   const activeAgents = snapshot.agents.filter((agent) => agent.status !== 'offline').length;
+  const manifestReady = Boolean(snapshot.manifest.controlPlaneUrl && snapshot.manifest.agentLogUrl);
 
   const runMission = async () => {
     setMissionLoading(true);
@@ -376,9 +510,9 @@ export function App() {
         </div>
 
         <div className="nav-right">
-          <div className={`badge-live ${snapshot.ready ? 'is-live' : 'is-warn'}`}>
+          <div className={`badge-live ${snapshot.readiness.state === 'ready' ? 'is-live' : 'is-warn'}`}>
             <span className="dot-live" />
-            {snapshot.network.label}
+            {snapshot.readiness.state.toUpperCase()} · {snapshot.network.label}
           </div>
           <button type="button" className={`btn-kill ${snapshot.halted ? 'halted' : ''}`} onClick={toggleKill}>
             {snapshot.halted ? '▶ RESUME MESH' : '⛔ KILL SWITCH'}
@@ -432,14 +566,24 @@ export function App() {
             <div><span>Registry</span><span>{shortAddress(snapshot.network.registryAddress)}</span></div>
             <div><span>Escrow</span><span>{shortAddress(snapshot.network.taskEscrowAddress)}</span></div>
             <div><span>Audit</span><span>{shortAddress(snapshot.network.auditLoggerAddress)}</span></div>
+            <div><span>Storage</span><span>{snapshot.network.storageProvider}</span></div>
           </div>
 
           <div className="sidebar-divider" />
           <div className="network-card">
-            <div><span>Readiness</span><span className={snapshot.ready ? 'ok' : 'warn'}>{snapshot.ready ? 'READY' : 'BLOCKED'}</span></div>
+            <div><span>Readiness</span><span className={snapshot.ready ? 'ok' : 'warn'}>{snapshot.readiness.state.toUpperCase()}</span></div>
             <div><span>Approval queue</span><span>{snapshot.metrics.tasksAwaitingApproval}</span></div>
+            <div><span>High risk</span><span className={snapshot.metrics.highRiskMissions > 0 ? 'warn' : 'ok'}>{snapshot.metrics.highRiskMissions}</span></div>
             <div><span>Live intents</span><span>{snapshot.intents.length}</span></div>
             <div><span>Memory</span><span className={snapshot.memory[0] ? 'ok' : ''}>{snapshot.memory[0] ? 'SYNCED' : 'EMPTY'}</span></div>
+          </div>
+
+          <div className="sidebar-divider" />
+          <div className="network-card">
+            <div><span>Manifest</span><span className={manifestReady ? 'ok' : 'warn'}>{manifestReady ? 'READY' : 'MISSING'}</span></div>
+            <div><span>Tracks</span><span>{snapshot.manifest.tracks.length}</span></div>
+            <div><span>Approval</span><span>{snapshot.manifest.operatorModel.approvalRequiredAbove} ETH</span></div>
+            <div><span>Receipts</span><span>{snapshot.audit.length + snapshot.payments.length}</span></div>
           </div>
         </aside>
 
@@ -491,6 +635,118 @@ export function App() {
                   <MetricCard label="Tasks Completed" value={String(snapshot.metrics.tasksCompleted)} delta={`${snapshot.metrics.tasksAwaitingApproval} awaiting approval`} tone="amber" />
                   <MetricCard label="Value Saved" value={`${formatEth(snapshot.metrics.totalSavingsWei)} ETH`} delta={`${snapshot.metrics.decisionsLogged} decisions anchored`} tone="green" />
                 </div>
+
+                <div className="two-col-grid">
+                  <div className="table-card compact">
+                    <div className="rp-title">Private Service Readiness</div>
+                    {snapshot.readiness.services.length > 0 ? (
+                      <div className="service-stack">
+                        {snapshot.readiness.services.map((service) => (
+                          <div key={service.key} className="service-row">
+                            <div>
+                              <div className="service-name">{humanizeServiceName(service.key)}</div>
+                              <div className="service-meta">
+                                {shortUrl(service.url)}
+                                {service.lastCheckedAt ? ` · checked ${relativeIso(service.lastCheckedAt)}` : ''}
+                              </div>
+                              {service.error && <div className="trace-note">{service.error}</div>}
+                            </div>
+                            <div className={`section-badge ${service.ready ? 'badge-complete' : 'badge-pending'}`}>
+                              {service.ready ? 'READY' : 'DEGRADED'}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="compact-empty">No internal services discovered yet.</div>
+                    )}
+                  </div>
+
+                  <div className="table-card compact">
+                    <div className="rp-title">Manifest + Receipts</div>
+                    <div className="trace-grid">
+                      <TraceRow label="Agent ID" value={snapshot.manifest.agentId} />
+                      <TraceRow label="Operator model" value={snapshot.manifest.operatorModel.humanOversight ? 'Human oversight enabled' : 'Autonomous only'} />
+                      <TraceRow label="Approval threshold" value={`${snapshot.manifest.operatorModel.approvalRequiredAbove} ETH`} />
+                      <TraceRow label="Filecoin mode" value={snapshot.manifest.networks.filecoinCalibrationEnabled ? 'Calibration-backed' : 'IPFS gateway'} />
+                    </div>
+                    <div className="manifest-links">
+                      <a className="link-inline" href={`${snapshot.manifest.dashboardUrl.replace(/\/$/, '')}/agent.json`} target="_blank" rel="noreferrer">
+                        `agent.json`
+                      </a>
+                      <a className="link-inline" href={snapshot.manifest.agentLogUrl} target="_blank" rel="noreferrer">
+                        `agent_log.json`
+                      </a>
+                      {snapshot.manifest.controlPlaneUrl && (
+                        <a className="link-inline" href={snapshot.manifest.controlPlaneUrl} target="_blank" rel="noreferrer">
+                          Control plane
+                        </a>
+                      )}
+                    </div>
+                    <div className="manifest-links">
+                      {snapshot.manifest.receipts.onchainIdentityRegistry && (
+                        <a
+                          className="link-inline"
+                          href={explorerLink(snapshot.manifest.receipts.onchainIdentityRegistry, 'address')}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          Identity registry
+                        </a>
+                      )}
+                      {snapshot.manifest.receipts.settlementEscrow && (
+                        <a
+                          className="link-inline"
+                          href={explorerLink(snapshot.manifest.receipts.settlementEscrow, 'address')}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          TaskEscrow
+                        </a>
+                      )}
+                      {snapshot.manifest.receipts.auditLogger && (
+                        <a
+                          className="link-inline"
+                          href={explorerLink(snapshot.manifest.receipts.auditLogger, 'address')}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          AuditLogger
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {latestLog && (
+                  <div className="table-card compact">
+                    <div className="rp-title">Latest Control Plane Receipt</div>
+                    <div className="service-row">
+                      <div>
+                        <div className="service-name">{latestLog.title}</div>
+                        <div className="service-meta">
+                          {latestLog.type} · {relativeIso(latestLog.createdAt)}
+                        </div>
+                        {latestLog.summary && <div className="trace-note">{latestLog.summary}</div>}
+                      </div>
+                      <div className={`section-badge ${latestLog.status === 'completed' ? 'badge-complete' : latestLog.status === 'failed' ? 'badge-pending' : 'badge-active'}`}>
+                        {latestLog.status.toUpperCase()}
+                      </div>
+                    </div>
+                    <div className="manifest-links">
+                      {latestLog.txHash && (
+                        <a className="link-inline" href={explorerLink(latestLog.txHash)} target="_blank" rel="noreferrer">
+                          Settlement tx
+                        </a>
+                      )}
+                      {latestLog.cid && (
+                        <a className="link-inline" href={artifactLookupUrl(latestLog.cid)} target="_blank" rel="noreferrer">
+                          Artifact metadata
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                )}
 
                 <div className="section-header">
                   <div className="section-title">Agent Fleet</div>
@@ -596,6 +852,68 @@ export function App() {
                         <div className={`section-badge ${statusBadgeClass(latestTask.status)}`}>{latestTask.status.replaceAll('_', ' ')}</div>
                       </div>
 
+                      <div className="two-col-grid">
+                        <div className="table-card compact">
+                          <div className="rp-title">Mission Plan</div>
+                          <div className="trace-note">{latestTask.missionPlan?.summary ?? 'Awaiting orchestrator output.'}</div>
+                          {latestTask.missionPlan?.checkpoints?.length ? (
+                            <div className="service-stack">
+                              {latestTask.missionPlan.checkpoints.map((checkpoint) => (
+                                <div key={checkpoint} className="service-meta">• {checkpoint}</div>
+                              ))}
+                            </div>
+                          ) : null}
+                          {latestTask.missionPlan?.approvalPolicy && (
+                            <div className="trace-note">{latestTask.missionPlan.approvalPolicy}</div>
+                          )}
+                        </div>
+
+                        <div className="table-card compact">
+                          <div className="rp-title">Risk + Receipt Bundle</div>
+                          {latestTask.riskAssessment ? (
+                            <>
+                              <div className="service-row">
+                                <div>
+                                  <div className="service-name">
+                                    {latestTask.riskAssessment.label.toUpperCase()} RISK · {latestTask.riskAssessment.score.toFixed(2)}
+                                  </div>
+                                  <div className="service-meta">
+                                    {latestTask.riskAssessment.provider}
+                                    {latestTask.riskAssessment.deploymentId ? ` · deployment ${latestTask.riskAssessment.deploymentId}` : ''}
+                                  </div>
+                                </div>
+                                <div className={`section-badge ${riskBadgeClass(latestTask.riskAssessment.label)}`}>
+                                  {latestTask.riskAssessment.requiresApproval ? 'APPROVAL REQUIRED' : 'AUTO-SETTLE OK'}
+                                </div>
+                              </div>
+                              <div className="trace-note">{latestTask.riskAssessment.rationale}</div>
+                              {latestTask.riskAssessment.evaluatedAt && (
+                                <div className="service-meta">Evaluated {relativeIso(latestTask.riskAssessment.evaluatedAt)}</div>
+                              )}
+                            </>
+                          ) : (
+                            <div className="compact-empty">Risk scoring has not completed yet.</div>
+                          )}
+                          <div className="manifest-links">
+                            {latestTask.requirementsArtifact && (
+                              <a className="link-inline" href={latestTask.requirementsArtifact.gatewayUrl} target="_blank" rel="noreferrer">
+                                Requirements CID
+                              </a>
+                            )}
+                            {latestTask.resultArtifact && (
+                              <a className="link-inline" href={latestTask.resultArtifact.gatewayUrl} target="_blank" rel="noreferrer">
+                                Result CID
+                              </a>
+                            )}
+                            {latestTask.memoryArtifact && (
+                              <a className="link-inline" href={latestTask.memoryArtifact.gatewayUrl} target="_blank" rel="noreferrer">
+                                Memory CID
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
                       <div className="neg-timeline">
                         <TimelineStep state="done" label="Mission created" detail={latestTask.objective} time={timeLabel(latestTask.createdAt)} />
                         <TimelineStep state={latestTask.vendorBids.length > 0 ? 'done' : 'pending'} label="Vendor discovery complete" detail={`Collected ${latestTask.vendorBids.length} bids from registered agents`} time={latestTask.vendorBids.length > 0 ? timeLabel(latestTask.updatedAt) : '—'} />
@@ -619,6 +937,24 @@ export function App() {
                           <div className="saving-amount">{formatEth(latestTask.savingsWei ?? '0')} ETH</div>
                           <div className="saving-label">vs budget</div>
                         </div>
+                      </div>
+
+                      <div className="manifest-links">
+                        {latestTask.requirementsArtifact && (
+                          <a className="link-inline" href={artifactLookupUrl(latestTask.requirementsArtifact.cid)} target="_blank" rel="noreferrer">
+                            Requirements metadata
+                          </a>
+                        )}
+                        {latestTask.resultArtifact && (
+                          <a className="link-inline" href={artifactLookupUrl(latestTask.resultArtifact.cid)} target="_blank" rel="noreferrer">
+                            Result metadata
+                          </a>
+                        )}
+                        {latestTask.memoryArtifact && (
+                          <a className="link-inline" href={artifactLookupUrl(latestTask.memoryArtifact.cid)} target="_blank" rel="noreferrer">
+                            Memory metadata
+                          </a>
+                        )}
                       </div>
 
                       {latestTask.status === 'awaiting_approval' && (
@@ -722,19 +1058,33 @@ export function App() {
                 <div className="main-subtitle">Lit-encrypted Filecoin artifacts anchored through AuditLogger</div>
               </div>
               <div className="panel-body">
-                <div className="audit-list">
-                  {snapshot.audit.map((entry) => (
-                    <div key={entry.id} className="audit-entry">
-                      <div className="audit-icon">{agentIcon(entry.agentId)}</div>
-                      <div className="audit-content">
-                        <div className="audit-action">{entry.agentName} · {entry.action}</div>
-                        <div className="audit-detail">input {truncate(entry.inputHash, 20)} · output {truncate(entry.outputHash, 20)}</div>
-                        <div className="audit-cid">ipfs://{truncate(entry.ipfsCID, 42)} {entry.txHash ? `· ${truncate(entry.txHash, 18)}` : ''}</div>
+                {snapshot.audit.length > 0 ? (
+                  <div className="audit-list">
+                    {snapshot.audit.map((entry) => (
+                      <div key={entry.id} className="audit-entry">
+                        <div className="audit-icon">{agentIcon(entry.agentId)}</div>
+                        <div className="audit-content">
+                          <div className="audit-action">{entry.agentName} · {entry.action}</div>
+                          <div className="audit-detail">input {truncate(entry.inputHash, 20)} · output {truncate(entry.outputHash, 20)}</div>
+                          <div className="audit-cid">ipfs://{truncate(entry.ipfsCID, 42)}</div>
+                          <div className="manifest-links">
+                            <a className="link-inline" href={artifactLookupUrl(entry.ipfsCID)} target="_blank" rel="noreferrer">
+                              Artifact metadata
+                            </a>
+                            {entry.txHash && (
+                              <a className="link-inline" href={explorerLink(entry.txHash)} target="_blank" rel="noreferrer">
+                                Explorer tx
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                        <div className="audit-time">{relativeIso(entry.timestamp)}</div>
                       </div>
-                      <div className="audit-time">{relativeIso(entry.timestamp)}</div>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="empty-card">No audit receipts have been anchored yet.</div>
+                )}
               </div>
             </section>
           )}
@@ -760,6 +1110,13 @@ export function App() {
                       <div className="pay-info">
                         <div className="pay-title">{payment.taskId ?? 'Mesh settlement'}</div>
                         <div className="pay-sub">{shortAddress(payment.from)} → {shortAddress(payment.to)}</div>
+                        {payment.txHash && (
+                          <div className="manifest-links">
+                            <a className="link-inline" href={explorerLink(payment.txHash)} target="_blank" rel="noreferrer">
+                              View on Etherscan
+                            </a>
+                          </div>
+                        )}
                       </div>
                       <div className="pay-amount">{payment.amount} ETH</div>
                       <div className={`pay-status ${payment.status}`}>{payment.status.toUpperCase()}</div>
@@ -772,10 +1129,10 @@ export function App() {
                     <div className="rp-title">Current Escrow Trace</div>
                     <div className="trace-grid">
                       <TraceRow label="Escrow Task" value={`#${latestTask.settlement.taskId}`} />
-                      <TraceRow label="Create Tx" value={truncate(latestTask.settlement.createTxHash, 18)} />
-                      <TraceRow label="Fund Tx" value={truncate(latestTask.settlement.fundTxHash, 18)} />
-                      <TraceRow label="Accept Tx" value={truncate(latestTask.settlement.acceptTxHash, 18)} />
-                      <TraceRow label="Complete Tx" value={truncate(latestTask.settlement.completeTxHash, 18)} />
+                      <TraceRow label="Create Tx" value={truncate(latestTask.settlement.createTxHash, 18)} href={explorerLink(latestTask.settlement.createTxHash)} />
+                      <TraceRow label="Fund Tx" value={truncate(latestTask.settlement.fundTxHash, 18)} href={explorerLink(latestTask.settlement.fundTxHash)} />
+                      <TraceRow label="Accept Tx" value={truncate(latestTask.settlement.acceptTxHash, 18)} href={explorerLink(latestTask.settlement.acceptTxHash)} />
+                      <TraceRow label="Complete Tx" value={truncate(latestTask.settlement.completeTxHash, 18)} href={explorerLink(latestTask.settlement.completeTxHash)} />
                     </div>
                   </div>
                 )}
@@ -886,6 +1243,8 @@ export function App() {
                   <div className="stat-row"><span>Status</span><span>{selectedAgent.status.replaceAll('_', ' ')}</span></div>
                   <div className="stat-row"><span>Intent</span><span className="align-right">{selectedAgent.intent}</span></div>
                   <div className="stat-row"><span>Wallet</span><span>{shortAddress(selectedAgent.onchain?.operatorWallet ?? selectedAgent.address)}</span></div>
+                  <div className="stat-row"><span>Storage</span><span>{snapshot.network.storageProvider}</span></div>
+                  <div className="stat-row"><span>Approval</span><span>{snapshot.manifest.operatorModel.approvalRequiredAbove} ETH</span></div>
                 </div>
 
                 <div className="detail-section">
@@ -984,11 +1343,17 @@ function TimelineStep({
   );
 }
 
-function TraceRow({ label, value }: { label: string; value: string }) {
+function TraceRow({ label, value, href }: { label: string; value: string; href?: string }) {
   return (
     <div className="stat-row">
       <span>{label}</span>
-      <span>{value}</span>
+      {href ? (
+        <a className="link-inline" href={href} target="_blank" rel="noreferrer">
+          {value}
+        </a>
+      ) : (
+        <span>{value}</span>
+      )}
     </div>
   );
 }
@@ -1046,6 +1411,12 @@ function statusBadgeClass(status: MeshTask['status']) {
   return 'badge-active';
 }
 
+function riskBadgeClass(label: 'low' | 'medium' | 'high') {
+  if (label === 'high') return 'badge-pending';
+  if (label === 'medium') return 'badge-active';
+  return 'badge-complete';
+}
+
 function tagClass(agentId: string) {
   if (agentId.includes('orchestrator')) return 'orch';
   if (agentId.includes('data')) return 'data';
@@ -1060,6 +1431,30 @@ function agentIcon(agentId: string) {
   if (agentId.includes('compute')) return '∆';
   if (agentId.includes('executor')) return '✦';
   return '▣';
+}
+
+function humanizeServiceName(value: string) {
+  return value.replace(/-/g, ' ').replace(/\b\w/g, (match) => match.toUpperCase());
+}
+
+function explorerLink(value?: string, kind: 'tx' | 'address' = 'tx') {
+  if (!value) return '#';
+  const prefix = kind === 'tx' ? 'tx' : 'address';
+  return `https://sepolia.etherscan.io/${prefix}/${value}`;
+}
+
+function artifactLookupUrl(cid: string) {
+  return `${API_URL.replace(/\/$/, '')}/artifacts/${cid}`;
+}
+
+function shortUrl(value?: string) {
+  if (!value) return '—';
+  try {
+    const parsed = new URL(value);
+    return `${parsed.hostname}${parsed.pathname === '/' ? '' : parsed.pathname}`;
+  } catch {
+    return value;
+  }
 }
 
 function mapPosition(index: number, total: number) {

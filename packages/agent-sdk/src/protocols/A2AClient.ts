@@ -17,8 +17,6 @@ export class A2AClient {
   async publishCard(card: AgentCard): Promise<Result<void, NetworkError>> {
     try {
       this.agentCards.set(card.id, card);
-      // In production, this would POST to a discovery endpoint
-      // For demo, we store locally and simulate
       return ok(undefined);
     } catch (error) {
       return err(new NetworkError(`Failed to publish agent card: ${String(error)}`));

@@ -6,6 +6,8 @@ export * from './protocols/A2AClient';
 export * from './protocols/MCPClient';
 export * from './protocols/x402Client';
 export * from './protocols/LibP2PClient';
+export * from './services/AgentServiceClient';
+export * from './services/ImpulseClient';
 export * from './storage/IPFSStorage';
 export * from './storage/FilecoinClient';
 export * from './proofs/DecisionProver';
