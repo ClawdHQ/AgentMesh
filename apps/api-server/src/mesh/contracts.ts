@@ -42,6 +42,7 @@ const taskEscrowAbi = [
   'function acceptTask(uint256 taskId) external',
   'function completeTask(uint256 taskId,string resultCID) external',
   'function getTask(uint256 taskId) external view returns (tuple(uint256 taskId,address requester,address executor,uint256 executorAgentId,uint256 amount,address token,uint8 status,string requirementsCID,string resultCID,uint256 createdAt,uint256 deadline))',
+  'function totalTasks() external view returns (uint256)',
   'event TaskCreated(uint256 indexed taskId,address indexed requester,uint256 executorAgentId,string requirementsCID)',
   'event TaskFunded(uint256 indexed taskId,uint256 amount,address token)',
   'event TaskAccepted(uint256 indexed taskId,uint256 executorAgentId)',
