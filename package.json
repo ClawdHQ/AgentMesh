@@ -12,6 +12,9 @@
     "deploy:contracts": "pnpm --filter @agentmesh/contracts deploy",
     "demo": "pnpm build && docker-compose up"
   },
+  "dependencies": {
+    "filecoin-pin": "0.20.0"
+  },
   "devDependencies": {
     "turbo": "^2.0.0",
     "prettier": "^3.2.5",

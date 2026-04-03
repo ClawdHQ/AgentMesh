@@ -1,7 +1,10 @@
 import React, { startTransition, useEffect, useMemo, useState } from 'react';
 
-const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001';
-const WS_URL = import.meta.env.VITE_WS_URL ?? 'ws://localhost:3001/ws';
+const API_URL = import.meta.env.VITE_API_URL ?? getDefaultApiUrl();
+const WS_URL = import.meta.env.VITE_WS_URL ?? toWebSocketUrl(API_URL);
+const DEFAULT_LOCAL_API_URL = 'http://localhost:3001';
+const DEFAULT_PRODUCTION_API_URL = 'https://agentmesh-api.onrender.com';
+const DIAGNOSTICS_QUERY_PARAM = 'debug';
 
 type TabKey = 'overview' | 'negotiate' | 'registry' | 'audit' | 'payments' | 'memory';
 
@@ -262,7 +265,7 @@ type MemorySnapshot = {
 const EMPTY_SNAPSHOT: Snapshot = {
   ready: false,
   halted: false,
-  blockers: ['Connecting to the control plane'],
+  blockers: ['Preparing live network view'],
   readiness: {
     state: 'idle',
     inFlight: false,
@@ -331,6 +334,216 @@ const AUTONOMY_OPTIONS = [
   { level: 4, name: 'Fully autonomous', description: 'The mesh may settle without interruption' },
 ];
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function isLocalHostname(hostname: string) {
+  return hostname === 'localhost' || hostname === '127.0.0.1';
+}
+
+function getDefaultApiUrl() {
+  if (typeof window === 'undefined') {
+    return DEFAULT_LOCAL_API_URL;
+  }
+
+  const { hostname, origin } = window.location;
+  if (isLocalHostname(hostname)) {
+    return DEFAULT_LOCAL_API_URL;
+  }
+
+  if (hostname.endsWith('onrender.com')) {
+    return origin;
+  }
+
+  return DEFAULT_PRODUCTION_API_URL;
+}
+
+function toWebSocketUrl(value: string) {
+  try {
+    const url = new URL(value);
+    url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+    url.pathname = '/ws';
+    url.search = '';
+    url.hash = '';
+    return url.toString();
+  } catch {
+    return `${DEFAULT_LOCAL_API_URL.replace(/^http/, 'ws')}/ws`;
+  }
+}
+
+function ensureArray<T>(value: unknown): T[] {
+  return Array.isArray(value) ? (value as T[]) : [];
+}
+
+function ensureStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : [];
+}
+
+function diagnosticsEnabled() {
+  if (import.meta.env.DEV) {
+    return true;
+  }
+
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  return new URLSearchParams(window.location.search).get(DIAGNOSTICS_QUERY_PARAM) === '1';
+}
+
+async function readJsonResponse<T>(response: Response): Promise<T> {
+  const text = await response.text();
+
+  if (!text.trim()) {
+    throw new Error(`Empty response from control plane (${response.status})`);
+  }
+
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new Error(`Invalid JSON response (${response.status})`);
+  }
+}
+
+function toUserFacingStatusMessage(message: string): string {
+  const normalized = message.trim().toLowerCase();
+
+  if (!normalized) {
+    return 'Live network data is temporarily unavailable.';
+  }
+  if (
+    normalized.includes('preparing live network view') ||
+    normalized.includes('connecting to the control plane')
+  ) {
+    return 'Connecting to live control-plane services.';
+  }
+  if (
+    normalized.includes('failed to fetch system snapshot') ||
+    normalized.includes('invalid json response') ||
+    normalized.includes('unexpected token')
+  ) {
+    return 'Live network data is temporarily unavailable. The dashboard will reconnect automatically.';
+  }
+  if (
+    normalized.includes('mission launch failed') ||
+    normalized.includes('approval failed') ||
+    normalized.includes('failed to update autonomy') ||
+    normalized.includes('failed to resume') ||
+    normalized.includes('failed to halt')
+  ) {
+    return 'The requested action could not be completed right now.';
+  }
+  if (
+    normalized.includes('ethereum rpc and operator wallet') ||
+    normalized.includes('contract addresses must be configured')
+  ) {
+    return 'Protocol services are still initializing.';
+  }
+  if (normalized.includes('filecoin storage is not ready')) {
+    return 'Receipt storage is still syncing.';
+  }
+  if (
+    normalized.includes('orchestrator-service is unavailable') ||
+    normalized.includes('specialist-service is unavailable') ||
+    normalized.includes('vendor-service')
+  ) {
+    return 'One or more private services are warming up.';
+  }
+  if (normalized.includes('failed to bootstrap the mesh')) {
+    return 'The control plane is recovering after a startup issue.';
+  }
+
+  return 'Live network data is temporarily unavailable.';
+}
+
+function buildStatusMessages(blockers: string[], actionError: string | null, showDiagnostics: boolean): string[] {
+  const messages = [...blockers, actionError].filter((entry): entry is string => Boolean(entry));
+  const visibleMessages = showDiagnostics
+    ? messages
+    : messages.map((message) => toUserFacingStatusMessage(message));
+
+  return Array.from(new Set(visibleMessages));
+}
+
+function formatServiceError(error: string | undefined, showDiagnostics: boolean) {
+  if (!error) {
+    return undefined;
+  }
+
+  return showDiagnostics ? error : 'Private service diagnostics are hidden while the service warms up.';
+}
+
+function readinessBadgeLabel(snapshot: Snapshot) {
+  if (snapshot.ready) {
+    return 'SYSTEM READY';
+  }
+
+  if (snapshot.readiness.state === 'hydrating') {
+    return 'SYNCING';
+  }
+
+  return 'LIVE SETUP';
+}
+
+function normalizeSnapshot(value: unknown): Snapshot {
+  if (!isRecord(value)) {
+    return EMPTY_SNAPSHOT;
+  }
+
+  const readiness = isRecord(value.readiness) ? value.readiness : null;
+  const network = isRecord(value.network) ? value.network : null;
+  const metrics = isRecord(value.metrics) ? value.metrics : null;
+  const manifest = isRecord(value.manifest) ? value.manifest : null;
+  const receipts = manifest && isRecord(manifest.receipts) ? manifest.receipts : null;
+  const networks = manifest && isRecord(manifest.networks) ? manifest.networks : null;
+  const operatorModel = manifest && isRecord(manifest.operatorModel) ? manifest.operatorModel : null;
+
+  return {
+    ...EMPTY_SNAPSHOT,
+    ...value,
+    blockers: ensureStringArray(value.blockers),
+    readiness: {
+      ...EMPTY_SNAPSHOT.readiness,
+      ...(readiness ?? {}),
+      services: ensureArray<ServiceStatus>(readiness?.services),
+    },
+    network: {
+      ...EMPTY_SNAPSHOT.network,
+      ...(network ?? {}),
+    },
+    metrics: {
+      ...EMPTY_SNAPSHOT.metrics,
+      ...(metrics ?? {}),
+    },
+    manifest: {
+      ...EMPTY_SNAPSHOT.manifest,
+      ...(manifest ?? {}),
+      capabilities: ensureStringArray(manifest?.capabilities),
+      tracks: ensureStringArray(manifest?.tracks),
+      receipts: {
+        ...EMPTY_SNAPSHOT.manifest.receipts,
+        ...(receipts ?? {}),
+      },
+      networks: {
+        ...EMPTY_SNAPSHOT.manifest.networks,
+        ...(networks ?? {}),
+      },
+      operatorModel: {
+        ...EMPTY_SNAPSHOT.manifest.operatorModel,
+        ...(operatorModel ?? {}),
+      },
+    },
+    agents: ensureArray<Agent>(value.agents),
+    intents: ensureArray<IntentEntry>(value.intents),
+    tasks: ensureArray<MeshTask>(value.tasks),
+    audit: ensureArray<AuditEntry>(value.audit),
+    payments: ensureArray<PaymentEvent>(value.payments),
+    memory: ensureArray<MemorySnapshot>(value.memory),
+    agentLog: ensureArray<AgentLogEntry>(value.agentLog),
+  };
+}
+
 export function App() {
   const [snapshot, setSnapshot] = useState<Snapshot>(EMPTY_SNAPSHOT);
   const [activeTab, setActiveTab] = useState<TabKey>('overview');
@@ -338,6 +551,7 @@ export function App() {
   const [missionLoading, setMissionLoading] = useState(false);
   const [approvalLoading, setApprovalLoading] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const showDiagnostics = useMemo(() => diagnosticsEnabled(), []);
 
   useEffect(() => {
     let closed = false;
@@ -348,7 +562,7 @@ export function App() {
         if (!response.ok) {
           throw new Error(`Failed to fetch system snapshot (${response.status})`);
         }
-        const nextSnapshot = (await response.json()) as Snapshot;
+        const nextSnapshot = normalizeSnapshot(await readJsonResponse<unknown>(response));
         if (!closed) {
           startTransition(() => {
             setSnapshot(nextSnapshot);
@@ -358,6 +572,7 @@ export function App() {
           });
         }
       } catch (error) {
+        console.error('Failed to load system snapshot', error);
         if (!closed) {
           setActionError(String(error));
         }
@@ -369,12 +584,13 @@ export function App() {
     const ws = new WebSocket(WS_URL);
     ws.onmessage = (event) => {
       try {
-        const message = JSON.parse(event.data as string) as { type: string; payload: Snapshot };
+        const message = JSON.parse(event.data as string) as { type?: string; payload?: unknown };
         if (message.type === 'snapshot') {
+          const nextSnapshot = normalizeSnapshot(message.payload);
           startTransition(() => {
-            setSnapshot(message.payload);
-            if (!message.payload.agents.some((agent) => agent.key === selectedAgentKey) && message.payload.agents[0]) {
-              setSelectedAgentKey(message.payload.agents[0].key);
+            setSnapshot(nextSnapshot);
+            if (!nextSnapshot.agents.some((agent) => agent.key === selectedAgentKey) && nextSnapshot.agents[0]) {
+              setSelectedAgentKey(nextSnapshot.agents[0].key);
             }
           });
         }
@@ -398,6 +614,10 @@ export function App() {
   const vendorAgents = snapshot.agents.filter((agent) => agent.role === 'vendor');
   const activeAgents = snapshot.agents.filter((agent) => agent.status !== 'offline').length;
   const manifestReady = Boolean(snapshot.manifest.controlPlaneUrl && snapshot.manifest.agentLogUrl);
+  const statusMessages = useMemo(
+    () => buildStatusMessages(snapshot.blockers, actionError, showDiagnostics),
+    [actionError, showDiagnostics, snapshot.blockers]
+  );
 
   const runMission = async () => {
     setMissionLoading(true);
@@ -415,10 +635,11 @@ export function App() {
       });
 
       if (!response.ok) {
-        const payload = (await response.json()) as { error?: string };
+        const payload = await readJsonResponse<{ error?: string }>(response);
         throw new Error(payload.error ?? `Mission launch failed (${response.status})`);
       }
     } catch (error) {
+      console.error('Mission launch failed', error);
       setActionError(String(error));
     } finally {
       setMissionLoading(false);
@@ -434,10 +655,11 @@ export function App() {
         method: 'POST',
       });
       if (!response.ok) {
-        const payload = (await response.json()) as { error?: string };
+        const payload = await readJsonResponse<{ error?: string }>(response);
         throw new Error(payload.error ?? `Approval failed (${response.status})`);
       }
     } catch (error) {
+      console.error('Task approval failed', error);
       setActionError(String(error));
     } finally {
       setApprovalLoading(false);
@@ -457,6 +679,7 @@ export function App() {
         throw new Error(`Failed to ${snapshot.halted ? 'resume' : 'halt'} mesh`);
       }
     } catch (error) {
+      console.error('Failed to toggle halt state', error);
       setActionError(String(error));
     }
   };
@@ -473,6 +696,7 @@ export function App() {
         throw new Error(`Failed to update autonomy (${response.status})`);
       }
     } catch (error) {
+      console.error('Failed to update autonomy', error);
       setActionError(String(error));
     }
   };
@@ -606,7 +830,7 @@ export function App() {
                     </div>
                     <div className="banner-foot">
                       <span className={`section-badge ${snapshot.ready ? 'badge-complete' : 'badge-pending'}`}>
-                        {snapshot.ready ? 'SYSTEM READY' : 'CONFIG REQUIRED'}
+                        {readinessBadgeLabel(snapshot)}
                       </span>
                       {latestTask && (
                         <span className="banner-meta">
@@ -620,12 +844,11 @@ export function App() {
                   </button>
                 </div>
 
-                {(snapshot.blockers.length > 0 || actionError) && (
+                {statusMessages.length > 0 && (
                   <div className="warning-card">
-                    {snapshot.blockers.map((blocker) => (
-                      <div key={blocker} className="warning-line">{blocker}</div>
+                    {statusMessages.map((message) => (
+                      <div key={message} className="warning-line">{message}</div>
                     ))}
-                    {actionError && <div className="warning-line">{actionError}</div>}
                   </div>
                 )}
 
@@ -649,7 +872,9 @@ export function App() {
                                 {shortUrl(service.url)}
                                 {service.lastCheckedAt ? ` · checked ${relativeIso(service.lastCheckedAt)}` : ''}
                               </div>
-                              {service.error && <div className="trace-note">{service.error}</div>}
+                              {service.error && (
+                                <div className="trace-note">{formatServiceError(service.error, showDiagnostics)}</div>
+                              )}
                             </div>
                             <div className={`section-badge ${service.ready ? 'badge-complete' : 'badge-pending'}`}>
                               {service.ready ? 'READY' : 'DEGRADED'}
@@ -741,7 +966,7 @@ export function App() {
                       )}
                       {latestLog.cid && (
                         <a className="link-inline" href={artifactLookupUrl(latestLog.cid)} target="_blank" rel="noreferrer">
-                          Artifact metadata
+                          Artifact receipt
                         </a>
                       )}
                     </div>
@@ -942,17 +1167,17 @@ export function App() {
                       <div className="manifest-links">
                         {latestTask.requirementsArtifact && (
                           <a className="link-inline" href={artifactLookupUrl(latestTask.requirementsArtifact.cid)} target="_blank" rel="noreferrer">
-                            Requirements metadata
+                            Requirements receipt
                           </a>
                         )}
                         {latestTask.resultArtifact && (
                           <a className="link-inline" href={artifactLookupUrl(latestTask.resultArtifact.cid)} target="_blank" rel="noreferrer">
-                            Result metadata
+                            Result receipt
                           </a>
                         )}
                         {latestTask.memoryArtifact && (
                           <a className="link-inline" href={artifactLookupUrl(latestTask.memoryArtifact.cid)} target="_blank" rel="noreferrer">
-                            Memory metadata
+                            Memory receipt
                           </a>
                         )}
                       </div>
@@ -1069,7 +1294,7 @@ export function App() {
                           <div className="audit-cid">ipfs://{truncate(entry.ipfsCID, 42)}</div>
                           <div className="manifest-links">
                             <a className="link-inline" href={artifactLookupUrl(entry.ipfsCID)} target="_blank" rel="noreferrer">
-                              Artifact metadata
+                              Artifact receipt
                             </a>
                             {entry.txHash && (
                               <a className="link-inline" href={explorerLink(entry.txHash)} target="_blank" rel="noreferrer">
@@ -1444,7 +1669,7 @@ function explorerLink(value?: string, kind: 'tx' | 'address' = 'tx') {
 }
 
 function artifactLookupUrl(cid: string) {
-  return `${API_URL.replace(/\/$/, '')}/artifacts/${cid}`;
+  return `https://ipfs.io/ipfs/${cid.replace(/^ipfs:\/\//, '')}`;
 }
 
 function shortUrl(value?: string) {

@@ -1,4 +1,5 @@
 import { execFile } from 'child_process';
+import { existsSync } from 'fs';
 import { mkdtemp, readFile, rm, writeFile } from 'fs/promises';
 import os from 'os';
 import path from 'path';
@@ -40,7 +41,7 @@ export class IPFSStorage {
       process.env.LIGHTHOUSE_GATEWAY_URL ??
       'https://gateway.lighthouse.storage/ipfs/';
     this.filecoinPinCommand =
-      options.filecoinPinCommand ?? process.env.FILECOIN_PIN_COMMAND ?? 'filecoin-pin';
+      options.filecoinPinCommand ?? process.env.FILECOIN_PIN_COMMAND ?? resolveFilecoinPinCommand();
     this.filecoinPinGatewayUrl =
       options.filecoinPinGatewayUrl ??
       process.env.FILECOIN_PIN_GATEWAY_URL ??
@@ -207,4 +208,19 @@ export class IPFSStorage {
 function matchCliValue(output: string, pattern: RegExp): string | undefined {
   const match = output.match(pattern);
   return match?.[1];
+}
+
+function resolveFilecoinPinCommand(): string {
+  const candidates = [
+    path.resolve(process.cwd(), 'node_modules/.bin/filecoin-pin'),
+    path.resolve(__dirname, '../../../../node_modules/.bin/filecoin-pin'),
+  ];
+
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  return 'filecoin-pin';
 }

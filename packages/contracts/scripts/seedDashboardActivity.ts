@@ -1,3 +1,9 @@
+import { execFile } from 'child_process';
+import { existsSync } from 'fs';
+import { mkdtemp, rm, writeFile } from 'fs/promises';
+import os from 'os';
+import path from 'path';
+import { promisify } from 'util';
 import { ethers } from 'hardhat';
 
 type SeedAgent = {
@@ -6,6 +12,24 @@ type SeedAgent = {
   description: string;
   capabilities: string[];
 };
+
+type UploadedAgentCard = {
+  tokenUri: string;
+  rootCid: string;
+  dataSetId?: string;
+};
+
+const execFileAsync = promisify(execFile);
+const CHAIN_ID = Number(process.env.CHAIN_ID ?? '11155111');
+const FILECOIN_STORAGE_PROVIDER = process.env.FILECOIN_STORAGE_PROVIDER ?? 'lighthouse';
+const FILECOIN_PIN_COMMAND = process.env.FILECOIN_PIN_COMMAND ?? resolveFilecoinPinCommand();
+const FILECOIN_PIN_GATEWAY_URL = ensureTrailingSlash(
+  process.env.FILECOIN_PIN_GATEWAY_URL ?? 'https://ipfs.io/ipfs/'
+);
+const PUBLIC_DASHBOARD_URL = (process.env.PUBLIC_DASHBOARD_URL ?? 'https://agent-mesh-os.vercel.app').replace(
+  /\/$/,
+  ''
+);
 
 const AGENTS: SeedAgent[] = [
   {
@@ -65,26 +89,177 @@ function parseRegistrationUri(registrationUri: string): { name?: string } | null
   }
 }
 
-function buildRegistrationDataUri(agent: SeedAgent): string {
+function buildRegistrationDataUri(agent: SeedAgent, operatorWallet: string): string {
   return `data:application/json;base64,${Buffer.from(
-    JSON.stringify({
-      type: 'https://eips.ethereum.org/EIPS/eip-8004#registration-v1',
-      name: agent.name,
-      description: agent.description,
-      services: [
-        {
-          name: agent.role,
-          type: 'agentmesh',
-          description: agent.description,
-          capabilities: agent.capabilities,
-        },
-      ],
-      supportedTrust: ['onchain-reputation', 'audit-log', 'filecoin-storage'],
-      metadata: {
-        role: agent.role,
-      },
-    })
+    JSON.stringify(buildAgentCard(agent, operatorWallet))
   ).toString('base64')}`;
+}
+
+function ensureTrailingSlash(value: string): string {
+  return value.endsWith('/') ? value : `${value}/`;
+}
+
+function resolveFilecoinPinCommand(): string {
+  const candidates = [
+    path.resolve(process.cwd(), 'node_modules/.bin/filecoin-pin'),
+    path.resolve(__dirname, '../../../node_modules/.bin/filecoin-pin'),
+  ];
+
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  return 'filecoin-pin';
+}
+
+function slugify(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+function hasPersistentRegistration(registrationUri: string): boolean {
+  return registrationUri.startsWith('ipfs://') || registrationUri.startsWith('https://');
+}
+
+function matchCliValue(output: string, pattern: RegExp): string | undefined {
+  const match = output.match(pattern);
+  return match?.[1];
+}
+
+function resolveAgentEndpoint(agent: SeedAgent): string | undefined {
+  if (agent.role === 'orchestrator') {
+    return process.env.ORCHESTRATOR_SERVICE_URL;
+  }
+
+  if (agent.role === 'data' || agent.role === 'compute' || agent.role === 'executor') {
+    return process.env.SPECIALIST_SERVICE_URL;
+  }
+
+  if (agent.role === 'vendor') {
+    return (process.env.VENDOR_SERVICE_URLS ?? '')
+      .split(',')
+      .map((entry) => entry.trim())
+      .filter(Boolean)[0];
+  }
+
+  return undefined;
+}
+
+function buildAgentCard(agent: SeedAgent, operatorWallet: string) {
+  const endpoint = resolveAgentEndpoint(agent);
+
+  return {
+    type: 'https://eips.ethereum.org/EIPS/eip-8004#registration-v1',
+    name: agent.name,
+    description: agent.description,
+    image: `${PUBLIC_DASHBOARD_URL}/mesh-icon.svg`,
+    endpoints: [
+      ...(endpoint
+        ? [
+            {
+              name: 'Agent API',
+              endpoint,
+              version: '1.0.0',
+              capabilities: {
+                tools: agent.capabilities.map((capability) => ({
+                  name: capability,
+                  description: `${agent.name} can ${capability.replaceAll('_', ' ')}`,
+                })),
+              },
+            },
+          ]
+        : []),
+      {
+        name: 'agentWallet',
+        endpoint: `eip155:${CHAIN_ID}:${operatorWallet}`,
+      },
+    ],
+    registrations: [],
+    supportedTrust: ['onchain-reputation', 'audit-log', 'filecoin-storage'],
+    metadata: {
+      role: agent.role,
+    },
+  };
+}
+
+async function inspectRegistrationUri(registrationUri: string): Promise<{ name?: string } | null> {
+  const parsed = parseRegistrationUri(registrationUri);
+  if (parsed) {
+    return parsed;
+  }
+
+  const gatewayUrl = resolveRegistrationUriUrl(registrationUri);
+  if (!gatewayUrl) {
+    return null;
+  }
+
+  try {
+    const response = await fetch(gatewayUrl);
+    if (!response.ok) {
+      return null;
+    }
+
+    const payload = (await response.json()) as { name?: unknown };
+    return typeof payload.name === 'string' ? { name: payload.name } : null;
+  } catch {
+    return null;
+  }
+}
+
+function resolveRegistrationUriUrl(registrationUri: string): string | undefined {
+  if (registrationUri.startsWith('ipfs://')) {
+    return `${FILECOIN_PIN_GATEWAY_URL}${registrationUri.replace(/^ipfs:\/\//, '')}`;
+  }
+
+  if (registrationUri.startsWith('https://') || registrationUri.startsWith('http://')) {
+    return registrationUri;
+  }
+
+  return undefined;
+}
+
+async function uploadAgentCardToFilecoin(agent: SeedAgent, operatorWallet: string): Promise<UploadedAgentCard> {
+  const fileName = `${slugify(agent.name)}-agent-card.json`;
+  const tmpDir = await mkdtemp(path.join(os.tmpdir(), 'agentmesh-agent-card-'));
+  const filePath = path.join(tmpDir, fileName);
+
+  try {
+    await writeFile(filePath, JSON.stringify(buildAgentCard(agent, operatorWallet), null, 2), 'utf8');
+    const { stdout } = await execFileAsync(FILECOIN_PIN_COMMAND, ['add', '--auto-fund', filePath], {
+      env: process.env,
+    });
+
+    const rootCid = matchCliValue(stdout, /Root CID:\s*([A-Za-z0-9]+)/i);
+    if (!rootCid) {
+      throw new Error('Filecoin Pin upload did not return a Root CID');
+    }
+
+    return {
+      tokenUri: `ipfs://${rootCid}/${fileName}`,
+      rootCid,
+      dataSetId: matchCliValue(stdout, /Data Set ID:\s*([0-9]+)/i),
+    };
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true });
+  }
+}
+
+async function buildRegistrationUri(agent: SeedAgent, operatorWallet: string): Promise<string> {
+  if (FILECOIN_STORAGE_PROVIDER !== 'filecoin-pin') {
+    return buildRegistrationDataUri(agent, operatorWallet);
+  }
+
+  const uploaded = await uploadAgentCardToFilecoin(agent, operatorWallet);
+  console.log(
+    `Registered ${agent.name} agent card via Filecoin Pin: ${uploaded.tokenUri}${
+      uploaded.dataSetId ? ` (dataset ${uploaded.dataSetId})` : ''
+    }`
+  );
+  return uploaded.tokenUri;
 }
 
 async function ensureAgentRegistered(
@@ -93,17 +268,29 @@ async function ensureAgentRegistered(
   agent: SeedAgent
 ): Promise<number> {
   const ownedAgentIds = (await registry.getAgentsByOwner(owner.address)) as any[];
+  let fallbackMatch: number | null = null;
 
   for (const ownedAgentId of ownedAgentIds) {
     const agentId = Number(ownedAgentId.toString());
     const tokenUri = String(await registry.tokenURI(agentId));
-    if (parseRegistrationUri(tokenUri)?.name === agent.name) {
+    const registration = await inspectRegistrationUri(tokenUri);
+    if (registration?.name !== agent.name) {
+      continue;
+    }
+
+    if (hasPersistentRegistration(tokenUri)) {
       return agentId;
     }
+
+    fallbackMatch = agentId;
   }
 
-  const registrationUri = buildRegistrationDataUri(agent);
-  const registerTx = await registry.registerAgent(registrationUri);
+  if (fallbackMatch && FILECOIN_STORAGE_PROVIDER !== 'filecoin-pin') {
+    return fallbackMatch;
+  }
+
+  const registrationUri = await buildRegistrationUri(agent, owner.address);
+  const registerTx = await registry.register(registrationUri);
   const registerReceipt = await registerTx.wait();
   const registeredEvent = registerReceipt.events?.find((event: any) => event.event === 'Registered');
   const agentId = Number(registeredEvent?.args?.agentId?.toString() ?? 0);
@@ -113,7 +300,7 @@ async function ensureAgentRegistered(
     {
       name: 'AgentMesh Agent Identity',
       version: '1',
-      chainId: 11155111,
+      chainId: CHAIN_ID,
       verifyingContract: registry.address,
     },
     {
@@ -149,7 +336,7 @@ async function main() {
   const [deployer] = (await ethers.getSigners()) as unknown as [ethers.Wallet];
   const registry = await ethers.getContractAt(
     [
-      'function registerAgent(string agentURI) external returns (uint256 agentId)',
+      'function register(string agentURI) external returns (uint256 agentId)',
       'function getAgentsByOwner(address ownerAddr) external view returns (uint256[])',
       'function tokenURI(uint256 agentId) external view returns (string)',
       'function setAgentWallet(uint256 agentId,address newWallet,uint256 deadline,bytes signature) external',

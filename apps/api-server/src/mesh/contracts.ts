@@ -1,4 +1,10 @@
 import { createHash } from 'crypto';
+import { execFile } from 'child_process';
+import { existsSync } from 'fs';
+import { mkdtemp, rm, writeFile } from 'fs/promises';
+import os from 'os';
+import path from 'path';
+import { promisify } from 'util';
 import { ethers } from 'ethers';
 import type {
   AuditEntry,
@@ -8,6 +14,15 @@ import type {
   OnchainAgentIdentity,
   PaymentEvent,
 } from './types';
+
+const execFileAsync = promisify(execFile);
+const FILECOIN_STORAGE_PROVIDER = process.env.FILECOIN_STORAGE_PROVIDER ?? 'lighthouse';
+const FILECOIN_PIN_COMMAND =
+  process.env.FILECOIN_PIN_COMMAND ?? resolveFilecoinPinCommand();
+const PUBLIC_DASHBOARD_URL = (process.env.PUBLIC_DASHBOARD_URL ?? 'https://agent-mesh-os.vercel.app').replace(
+  /\/$/,
+  ''
+);
 
 const agentRegistryAbi = [
   'function registerAgent(string agentURI) external returns (uint256 agentId)',
@@ -130,13 +145,25 @@ export class MeshContractsClient {
 
   async ensureRegistered(agent: MeshAgent): Promise<OnchainAgentIdentity> {
     const ownedAgentIds = (await this.registry.getAgentsByOwner(this.operatorWallet.address)) as ethers.BigNumber[];
+    let fallbackMatch:
+      | {
+          agentId: number;
+          tokenUri: string;
+          operatorWallet: string;
+        }
+      | undefined;
 
     for (const ownedAgentId of ownedAgentIds) {
       const tokenUri = String(await this.registry.tokenURI(ownedAgentId));
-      const parsed = parseRegistrationUri(tokenUri);
-      if (parsed?.name === agent.name) {
-        const agentId = ownedAgentId.toNumber();
-        const operatorWallet = String(await this.registry.getAgentWallet(agentId));
+      const parsed = await inspectRegistrationUri(tokenUri);
+      if (parsed?.name !== agent.name) {
+        continue;
+      }
+
+      const agentId = ownedAgentId.toNumber();
+      const operatorWallet = String(await this.registry.getAgentWallet(agentId));
+
+      if (hasPersistentRegistration(tokenUri)) {
         return {
           agentId,
           owner: this.operatorWallet.address,
@@ -147,9 +174,27 @@ export class MeshContractsClient {
           walletLinkTxHash: '',
         };
       }
+
+      fallbackMatch = {
+        agentId,
+        tokenUri,
+        operatorWallet,
+      };
     }
 
-    const registrationUri = buildRegistrationDataUri(agent);
+    if (fallbackMatch) {
+      return {
+        agentId: fallbackMatch.agentId,
+        owner: this.operatorWallet.address,
+        operatorWallet: fallbackMatch.operatorWallet,
+        registryAddress: this.config.registryAddress,
+        registrationURI: fallbackMatch.tokenUri,
+        registrationTxHash: '',
+        walletLinkTxHash: '',
+      };
+    }
+
+    const registrationUri = await buildRegistrationUri(agent, this.operatorWallet.address);
     const registerTx = await this.registry.registerAgent(registrationUri);
     const registerReceipt = await registerTx.wait();
     const registeredEvent = registerReceipt.events?.find(
@@ -486,6 +531,173 @@ export function parseRegistrationUri(registrationUri: string): { name?: string }
   } catch {
     return null;
   }
+}
+
+async function inspectRegistrationUri(registrationUri: string): Promise<{ name?: string } | null> {
+  const parsed = parseRegistrationUri(registrationUri);
+  if (parsed) {
+    return parsed;
+  }
+
+  const gatewayUrl = resolveRegistrationUriUrl(registrationUri);
+  if (!gatewayUrl) {
+    return null;
+  }
+
+  try {
+    const response = await fetch(gatewayUrl);
+    if (!response.ok) {
+      return null;
+    }
+
+    const payload = (await response.json()) as { name?: unknown };
+    return typeof payload.name === 'string' ? { name: payload.name } : null;
+  } catch {
+    return null;
+  }
+}
+
+function hasPersistentRegistration(registrationUri: string): boolean {
+  return registrationUri.startsWith('ipfs://') || registrationUri.startsWith('https://');
+}
+
+function resolveRegistrationUriUrl(registrationUri: string): string | undefined {
+  if (registrationUri.startsWith('ipfs://')) {
+    return `${registrationGatewayBase()}${registrationUri.replace(/^ipfs:\/\//, '')}`;
+  }
+
+  if (registrationUri.startsWith('https://') || registrationUri.startsWith('http://')) {
+    return registrationUri;
+  }
+
+  return undefined;
+}
+
+function registrationGatewayBase(): string {
+  const base =
+    process.env.FILECOIN_PIN_GATEWAY_URL ??
+    process.env.LIGHTHOUSE_GATEWAY_URL ??
+    'https://ipfs.io/ipfs/';
+
+  return base.endsWith('/') ? base : `${base}/`;
+}
+
+async function buildRegistrationUri(agent: MeshAgent, operatorWallet: string): Promise<string> {
+  if (FILECOIN_STORAGE_PROVIDER !== 'filecoin-pin') {
+    return buildRegistrationDataUri(agent);
+  }
+
+  return uploadAgentCardToFilecoin(agent, operatorWallet);
+}
+
+async function uploadAgentCardToFilecoin(agent: MeshAgent, operatorWallet: string): Promise<string> {
+  const fileName = `${slugify(agent.name)}-agent-card.json`;
+  const tmpDir = await mkdtemp(path.join(os.tmpdir(), 'agentmesh-registration-'));
+  const filePath = path.join(tmpDir, fileName);
+
+  try {
+    await writeFile(filePath, JSON.stringify(buildAgentCard(agent, operatorWallet), null, 2), 'utf8');
+    const { stdout } = await execFileAsync(FILECOIN_PIN_COMMAND, ['add', '--auto-fund', filePath], {
+      env: process.env,
+    });
+
+    const rootCid = matchCliValue(stdout, /Root CID:\s*([A-Za-z0-9]+)/i);
+    if (!rootCid) {
+      throw new Error('Filecoin Pin upload did not return a Root CID');
+    }
+
+    return `ipfs://${rootCid}/${fileName}`;
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true });
+  }
+}
+
+function buildAgentCard(agent: MeshAgent, operatorWallet: string) {
+  const endpoint = resolveAgentEndpoint(agent);
+
+  return {
+    type: 'https://eips.ethereum.org/EIPS/eip-8004#registration-v1',
+    name: agent.name,
+    description: agent.description,
+    image: `${PUBLIC_DASHBOARD_URL}/mesh-icon.svg`,
+    endpoints: [
+      ...(endpoint
+        ? [
+            {
+              name: 'Agent API',
+              endpoint,
+              version: '1.0.0',
+              capabilities: {
+                tools: agent.capabilities.map((capability) => ({
+                  name: capability,
+                  description: `${agent.name} can ${capability.replaceAll('_', ' ')}`,
+                })),
+              },
+            },
+          ]
+        : []),
+      {
+        name: 'agentWallet',
+        endpoint: `eip155:${process.env.CHAIN_ID ?? '11155111'}:${operatorWallet}`,
+      },
+    ],
+    registrations: [],
+    supportedTrust: ['onchain-reputation', 'audit-log', 'lit-access-control', 'filecoin-storage'],
+    metadata: {
+      role: agent.role,
+      pricing: agent.pricing ?? null,
+    },
+  };
+}
+
+function resolveAgentEndpoint(agent: MeshAgent): string | undefined {
+  if (agent.role === 'orchestrator') {
+    return process.env.ORCHESTRATOR_SERVICE_URL;
+  }
+
+  if (agent.role === 'data' || agent.role === 'compute' || agent.role === 'executor') {
+    return process.env.SPECIALIST_SERVICE_URL;
+  }
+
+  if (agent.role === 'vendor') {
+    return (process.env.VENDOR_SERVICE_URLS ?? '')
+      .split(',')
+      .map((entry) => entry.trim())
+      .filter(Boolean)[0];
+  }
+
+  return undefined;
+}
+
+function ensureTrailingSlash(value: string): string {
+  return value.endsWith('/') ? value : `${value}/`;
+}
+
+function slugify(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+function matchCliValue(output: string, pattern: RegExp): string | undefined {
+  const match = output.match(pattern);
+  return match?.[1];
+}
+
+function resolveFilecoinPinCommand(): string {
+  const candidates = [
+    path.resolve(process.cwd(), 'node_modules/.bin/filecoin-pin'),
+    path.resolve(__dirname, '../../../../node_modules/.bin/filecoin-pin'),
+  ];
+
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  return 'filecoin-pin';
 }
 
 function asBytes32(value: unknown): string {
