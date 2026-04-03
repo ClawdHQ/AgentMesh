@@ -11,6 +11,7 @@ dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
 const EnvSchema = z.object({
   ANTHROPIC_API_KEY: z.string().optional(),
   PRIVATE_KEY: z.string().min(1),
+  ORCHESTRATOR_HOST: z.string().default('127.0.0.1'),
   ORCHESTRATOR_PORT: z.string().transform(Number).default('3002'),
   LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error']).default('info'),
   INTERNAL_SERVICE_API_KEY: z.string().optional(),
@@ -82,8 +83,11 @@ async function main() {
     }
   });
 
-  app.listen(env.ORCHESTRATOR_PORT, () => {
-    logger.info({ port: env.ORCHESTRATOR_PORT }, 'Orchestrator planning service started');
+  app.listen(env.ORCHESTRATOR_PORT, env.ORCHESTRATOR_HOST, () => {
+    logger.info(
+      { host: env.ORCHESTRATOR_HOST, port: env.ORCHESTRATOR_PORT },
+      'Orchestrator planning service started'
+    );
   });
 }
 

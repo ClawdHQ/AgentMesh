@@ -14,6 +14,7 @@ dotenv.config({ path: path.resolve(__dirname, '../.env') });
 dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
 
 const EnvSchema = z.object({
+  API_HOST: z.string().default('0.0.0.0'),
   API_PORT: z.coerce.number().default(3001),
   LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error']).default('info'),
   CHAIN_ID: z.coerce.number().default(11155111),
@@ -211,8 +212,8 @@ app.post('/halt/resume', async (_req, res) => {
 async function start() {
   await runtime.initialize();
 
-  server.listen(env.API_PORT, () => {
-    logger.info({ port: env.API_PORT }, 'AgentMesh API server started');
+  server.listen(env.API_PORT, env.API_HOST, () => {
+    logger.info({ host: env.API_HOST, port: env.API_PORT }, 'AgentMesh API server started');
   });
 }
 

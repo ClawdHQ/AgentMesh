@@ -10,6 +10,7 @@ dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
 const EnvSchema = z.object({
   PRIVATE_KEY: z.string().min(1),
   SEPOLIA_RPC_URL: z.string().default('https://rpc.sepolia.org'),
+  SPECIALIST_AGENTS_HOST: z.string().default('127.0.0.1'),
   SPECIALIST_AGENTS_PORT: z.string().transform(Number).default('3003'),
   USDC_ADDRESS_SEPOLIA: z.string().default('0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238'),
   LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error']).default('info'),
@@ -206,8 +207,11 @@ async function main() {
     }
   });
 
-  app.listen(env.SPECIALIST_AGENTS_PORT, () => {
-    logger.info({ port: env.SPECIALIST_AGENTS_PORT }, 'Specialist agents HTTP server started');
+  app.listen(env.SPECIALIST_AGENTS_PORT, env.SPECIALIST_AGENTS_HOST, () => {
+    logger.info(
+      { host: env.SPECIALIST_AGENTS_HOST, port: env.SPECIALIST_AGENTS_PORT },
+      'Specialist agents HTTP server started'
+    );
   });
 }
 
